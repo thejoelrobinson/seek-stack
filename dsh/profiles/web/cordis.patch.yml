@@ -6,7 +6,7 @@
 #
 # `-auto` samples the host once at boot; this PC has a display, so it mounts
 # `-native`, whose OS dialog is "only viable when the operator sits at the
-# host's display". Over seek.joelcrobinson.com that fails with HTTP 403 on
+# host's display". Over a tunnelled hostname that fails with HTTP 403 on
 # /api/host.pickDirectory. `-browse` lists directories in the app itself and
 # serves remote clients the native backend cannot. One row carries both the
 # host capability and the client flow.

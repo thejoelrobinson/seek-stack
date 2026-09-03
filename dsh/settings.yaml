@@ -11,7 +11,7 @@ llm-pi-ai:
   providers:
 
     # llama.cpp direct - best context control (q8_0 KV cache, 64K window)
-    # start with: A:\llama.cpp\serve-qwen38.ps1
+    # started by start-seek.ps1; see seek.config.example.ps1
     local-llamacpp:
       api: openai-completions
       baseURL: http://127.0.0.1:18800/v1

@@ -25,12 +25,14 @@
 //             {url, cited_text}, first occurrence wins.
 const http = require('node:http');
 const fs = require('node:fs');
+const path = require('node:path');
 
-const LISTEN = 18802;
-const SEARXNG = 'http://127.0.0.1:18801';
+const LISTEN = Number(process.env.SEEK_ADAPTER_PORT) || 18802;
+const SEARXNG = process.env.SEEK_SEARXNG_URL || 'http://127.0.0.1:18801';
 const MAX_RESULTS = 20;           // the seam truncates to its own maxResults
 const SNIPPET_CHARS = 400;
-const LOG = 'C:/Users/Joel Robinson/.dsh/proxy/search.log';
+// Log beside this script, so the file moves with it and no absolute path is baked in.
+const LOG = path.join(__dirname, 'search.log');
 
 const log = (m) => { try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${m}\n`); } catch {} };
 

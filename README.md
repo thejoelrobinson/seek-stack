@@ -1,8 +1,34 @@
 # seek-stack
 
-Everything that makes **seek.joelcrobinson.com** work: a self-hosted [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) coding agent running **Qwen3.8-27B** entirely on a local RTX 3090, reachable from anywhere through a Cloudflare tunnel, with a hand-rolled auth layer in front of it and two small Node shims that fix things the harness gets wrong.
+A coding agent that runs **entirely on your own machine**. The model runs on your GPU, web search runs in a local container, and your code never leaves your computer. No API keys, no cloud inference, no monthly bill.
 
-No API keys. No cloud inference. The model, the search index, and the filesystem are all local.
+Built on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) with **Qwen3.8-27B** on llama.cpp, plus a local SearXNG index and two small Node shims that fix things the harness gets wrong. Optionally reachable from anywhere through a Cloudflare tunnel, behind an auth proxy.
+
+## Install
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+That is the whole thing. It reads your GPU, picks a model size that fits, installs
+what is missing, downloads everything, and starts it. Re-run it if it stops
+partway — every step resumes.
+
+Then open **http://127.0.0.1:3080**.
+
+You need an NVIDIA GPU with **10 GB of VRAM or more** and ~25 GB of free disk.
+Node, Docker and llama.cpp are installed for you if missing.
+
+## Documentation
+
+| | |
+|---|---|
+| **[docs/SETUP.md](docs/SETUP.md)** | Full walkthrough, from a fresh PC to a working agent — start here |
+| **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)** | Symptoms and fixes when something misbehaves |
+| **[docs/HARDWARE.md](docs/HARDWARE.md)** | What fits on your card, and how to run a different model |
+
+Everything below is how it works internally — useful for modifying it, not needed
+to run it.
 
 ---
 
@@ -35,6 +61,9 @@ Every port binds `127.0.0.1`. The only thing reachable from outside is the tunne
 ## Layout
 
 ```
+install.ps1                             one-shot installer
+uninstall.ps1                           removes it again
+seek.config.example.ps1                 every path, port and limit in one place
 start-seek.ps1                          orchestrator - starts everything, idempotent
 llama.cpp/serve-qwen38.ps1              llama-server launch flags
 dsh/settings.yaml                       harness config: providers, context, reasoning
@@ -45,40 +74,34 @@ dsh/proxy/searxng-search-adapter.js     free web_search backend (18802)
 searxng/                                docker-compose + settings for the search index
 cloudflared/ingress-snippet.yml         tunnel ingress fragment
 scheduled-task/register-seekharness.ps1 autostart at logon
+docs/                                   setup, troubleshooting, hardware
 ```
 
-Deployed paths on the host: `start-seek.ps1` to `~`, the `dsh/` tree to `~/.dsh/`, `llama.cpp/` to `A:\llama.cpp\`, `searxng/` to `~/searxng/`.
+The installer deploys the `dsh/` tree to `~/.dsh/`, `llama.cpp/` and the model to
+your chosen `-InstallDir`, and `searxng/` to `~/searxng/`. **No path is hardcoded**
+— everything reads `~/.dsh/seek.config.ps1`, which the installer generates.
 
----
+### Configuration
 
-## Setup
+One file: `~/.dsh/seek.config.ps1`, documented in
+[`seek.config.example.ps1`](seek.config.example.ps1). Both PowerShell scripts
+dot-source it, and the Node services log beside themselves rather than to any
+fixed location.
 
-**Prerequisites** — a 24 GB CUDA GPU, Node, Docker, `cloudflared`, llama.cpp with CUDA, and `npm i -g @deepseek-ai/dsh`. The model is `unsloth/Qwen3.8-27B-GGUF` at `UD-Q5_K_XL` (18.83 GB).
-
-1. **Copy files to the paths above**, adjusting the absolute paths baked into `start-seek.ps1`, `serve-qwen38.ps1`, and the two `LOG =` constants in the proxy scripts.
-
-2. **Set the proxy credentials** (User scope — the proxy refuses to start without them, rather than exposing the harness unauthenticated):
-
-   ```powershell
-   [Environment]::SetEnvironmentVariable('DSH_PROXY_USER','you','User')
-   [Environment]::SetEnvironmentVariable('DSH_PROXY_PASS','a-long-random-string','User')
-   ```
-
-3. **Generate a SearXNG secret** — `searxng/settings.yml` ships a `CHANGEME` placeholder. Replace it with `openssl rand -hex 32`, then `docker compose up -d` in `searxng/`.
-
-4. **Point the tunnel at 18799**, per `cloudflared/ingress-snippet.yml`.
-
-5. **Register autostart**: `.\scheduled-task\register-seekharness.ps1`
-
-6. **Start it**: `.\start-seek.ps1` — safe to re-run, it skips whatever is already healthy.
+Two values must stay in sync, and nothing enforces it: `$ContextSize` there and
+`contextWindow:` in `~/.dsh/settings.yaml`. The installer sets both; if you change
+one by hand, change the other.
 
 ### Verifying
 
-```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://seek.example.com/
+```powershell
+curl.exe -s -o NUL -w "%{http_code}\n" http://127.0.0.1:3080        # the UI
+curl.exe -s -o NUL -w "%{http_code}\n" http://127.0.0.1:18798/health # the model
 ```
 
-**401 is success** — that is the auth proxy challenging you. **502 means the tunnel is up but the origin is down**: run `start-seek.ps1`. Logs land in `~/.dsh/autostart.log`, `~/.dsh/proxy/*.log`, and `A:\llama.cpp\qwen38-server.log.err`.
+Through a tunnel, **401 is success** — that is the auth proxy challenging you.
+**502 means the tunnel is up but the origin is down**: run `start-seek.ps1`. The
+last line of `~/.dsh/autostart.log` summarises every service.
 
 ---
 

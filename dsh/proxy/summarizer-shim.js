@@ -16,10 +16,13 @@
 // baseURL back at 18798 to restore stock behaviour.
 const http = require('node:http');
 const fs = require('node:fs');
+const path = require('node:path');
 
-const LISTEN = 18800, TARGET = 18798;
+const LISTEN = Number(process.env.SEEK_SHIM_PORT) || 18800;
+const TARGET = Number(process.env.SEEK_LLAMA_PORT) || 18798;
 const SUMMARIZER_CAP = 8192;
-const LOG = 'C:/Users/Joel Robinson/.dsh/proxy/wire.log';
+// Log beside this script, so the file moves with it and no absolute path is baked in.
+const LOG = path.join(__dirname, 'wire.log');
 
 const log = (m) => { try { fs.appendFileSync(LOG, `${new Date().toISOString()} ${m}\n`); } catch {} };
 
