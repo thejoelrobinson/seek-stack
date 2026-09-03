@@ -1,0 +1,27 @@
+# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+
+# Use the in-app browse picker instead of the default `-auto`.
+#
+# `-auto` samples the host once at boot; this PC has a display, so it mounts
+# `-native`, whose OS dialog is "only viable when the operator sits at the
+# host's display". Over seek.joelcrobinson.com that fails with HTTP 403 on
+# /api/host.pickDirectory. `-browse` lists directories in the app itself and
+# serves remote clients the native backend cannot. One row carries both the
+# host capability and the client flow.
+#
+# An id-targeted patch can't swap `name` (it's asserted, not assigned), so
+# this disables the auto row and inserts the browse row instead.
+- id: directory-picker
+  disabled: true
+
+# Both faces must be composed by hand. `-auto` normally mounts the backend as a
+# dual-face entry at runtime, which is what pulls in the client flow; composing
+# the host row directly gets the capability but no UI, and ui-workspace hides
+# directory picking for a kind it has no flow for.
+- insert:
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+    - id: client-ui-directory-picker-browse
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'

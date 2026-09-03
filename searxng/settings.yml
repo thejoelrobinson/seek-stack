@@ -1,0 +1,17 @@
+# SearXNG for the DeepSeek Harness web_search backend.
+# Local-only, no API key, no third-party account. JSON format is REQUIRED --
+# it is off by default and the adapter talks to /search?format=json.
+use_default_settings: true
+server:
+  secret_key: "CHANGEME__generate_with__openssl_rand_-hex_32"
+  limiter: false          # no rate-limiter: single local consumer
+  image_proxy: false
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json
+engines:
+  - name: google
+    disabled: true        # Google blocks datacenter/scraped queries fastest

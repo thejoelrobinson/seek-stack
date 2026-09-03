@@ -1,0 +1,25 @@
+# Session-signing secret for the auth proxy — regenerated on first run
+.secret
+
+# Runtime logs
+*.log
+*.log.err
+*.err
+*.out
+wire.log
+search.log
+autostart.log
+
+# Harness runtime state (conversations, storages, credentials)
+sessions/
+storages/
+profiles/*/node_modules/
+
+# cloudflared tunnel credentials — never commit
+*.json
+!package.json
+
+# Backups
+*.bak
+*.bak2
+*.bak-*

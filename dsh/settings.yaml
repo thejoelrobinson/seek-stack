@@ -1,0 +1,92 @@
+# DeepSeek Harness settings
+# Docs: https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md
+# Provider ids are PERMANENT - sessions and credential refs key off them.
+#
+# contextWindow must be the SERVED window, not the model's native one.
+# llama-server advertises n_ctx_train (262144) alongside the n_ctx it actually
+# serves (65536); without an explicit contextWindow the harness believes the
+# training figure, never compacts in time, and llama.cpp errors on overflow.
+
+llm-pi-ai:
+  providers:
+
+    # llama.cpp direct - best context control (q8_0 KV cache, 64K window)
+    # start with: A:\llama.cpp\serve-qwen38.ps1
+    local-llamacpp:
+      api: openai-completions
+      baseURL: http://127.0.0.1:18800/v1
+      apiKeyEnv: LOCAL_LLM_API_KEY
+      # Default is 5 min and covers "an outstanding provider read". Qwen3.8 can
+      # stream reasoning for 5+ min with no content delta on a 24576-token turn
+      # (measured: 12,167 tokens / 312s), which trips it and forces a retry.
+      # 24576 tokens at ~39 t/s is ~10.5 min, so allow 20.
+      streamIdleTimeoutMs: 1200000
+      # Deployment default effort. Without this the Qwen3.8 chat template applies
+      # its OWN default of `xhigh`, which measured 2214 completion tokens (9228
+      # chars of reasoning) to answer a question whose answer was 170 chars.
+      # medium measured 575 tokens; low measured 215. Switchable per-session in
+      # the model picker via `reasoningEfforts` below.
+      reasoning: medium
+      models:
+        - id: qwen3.8-27b
+          contextWindow: 65536 # measured: /v1/models n_ctx (NOT n_ctx_train)
+          maxTokens: 24576 # 7k reasoning + ~4.4k file must fit in ONE response
+          # Levels the model picker offers. key = harness level, value = wire
+          # spelling. The Qwen3.8 template accepts ONLY xhigh|medium|low and
+          # raises on anything else, so do NOT add `off`/`minimal`/`max`:
+          # an undeclared level is simply not offered, which is what we want.
+          reasoningEfforts:
+            low: low
+            medium: medium
+            xhigh: xhigh
+          compat:
+            # pi-ai guesses the thinking dialect from the endpoint URL, and a
+            # 127.0.0.1 llama-server URL tells it nothing. `deepseek` is the
+            # dialect that puts `reasoning_effort` on the wire as a TOP-LEVEL
+            # field, which is what llama.cpp forwards into the chat template.
+            # (The `qwen`/`qwen-chat-template` dialects only send a boolean
+            # enable_thinking with no level, and the `chat-template` dialect
+            # that would carry levels is withheld from this config surface.)
+            # Verified against :18798 — top-level reasoning_effort:low gives
+            # 215 tok, identical to chat_template_kwargs; the extra
+            # `thinking:{type}` object deepseek also sends is ignored, not 400'd.
+            thinkingFormat: deepseek
+            supportsReasoningEffort: true
+
+    # Ollama - your existing model library on :11434
+    local-ollama:
+      api: openai-completions
+      baseURL: http://127.0.0.1:11434/v1
+      apiKeyEnv: LOCAL_LLM_API_KEY
+      models:
+        - id: qwen3.8:27b
+          contextWindow: 65536 # PARAMETER num_ctx in its Modelfile
+          maxTokens: 24576 # 7k reasoning + ~4.4k file must fit in ONE response
+        - id: qwen3-coder:30b
+          contextWindow: 32768 # no num_ctx set -> OLLAMA_CONTEXT_LENGTH=32768
+          maxTokens: 8192
+        - id: glm-4.7-flash:latest
+          contextWindow: 32768 # no num_ctx set -> OLLAMA_CONTEXT_LENGTH=32768
+          maxTokens: 8192
+
+# NO `compaction-basic:` BLOCK HERE - ON PURPOSE.
+#
+# The summarizer's 8192-token cap is NOT reachable from this file: the tree entry
+# carrying that config is disabled because agent presets own the live one. Adding
+# `compaction-basic: {maxTokens: ...}` here is silently inert (verified 2026-08-21:
+# wire.log still shows the summarizer arriving at cap=8192, 191 times).
+#
+# Worse, if that namespace ever DOES become live, raising maxTokens would break
+# ~/.dsh/proxy/summarizer-shim.js, which identifies the summarizer call precisely
+# BY its 8192 cap and disables thinking for it. Changing the cap here would make
+# the shim stop matching and silently re-enable reasoning on every summarization.
+#
+# The shim is the working fix. Change compaction behaviour there, not here.
+
+# Default the agent to local Qwen3.8 instead of deepseek-v4-flash
+agent-default-model:
+  provider: local-llamacpp
+  model: qwen3.8-27b
+  reasoningEffort: medium
+ui-onboarding:
+  welcomeNoticeVersion: 2026-08-13.1

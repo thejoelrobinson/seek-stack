@@ -1,0 +1,18 @@
+# Fragment for ~/.cloudflared/config.yml (Windows: C:\Users\<you>\.cloudflared\config.yml).
+#
+# The tunnel MUST point at 18799 (the auth proxy), never 3080 (dsh web) directly.
+# dsh has no authentication of its own and its Standard agent preset can run
+# PowerShell, so exposing 3080 is internet-wide remote code execution.
+
+tunnel: <YOUR-TUNNEL-UUID>
+credentials-file: C:\Users\<you>\.cloudflared\<YOUR-TUNNEL-UUID>.json
+
+ingress:
+  - hostname: seek.example.com
+    service: http://localhost:18799   # auth proxy, NOT 3080
+  - service: http_status:404
+
+# Route DNS once:
+#   cloudflared tunnel route dns <YOUR-TUNNEL-UUID> seek.example.com
+# Config changes need a service restart, which needs admin:
+#   Restart-Service Cloudflared -Force
