@@ -233,8 +233,12 @@ if (Test-Path (Join-Path $LlamaDir "llama-server.exe")) {
   $cuda = if ([version](Get-DriverCuda) -ge [version]"13.3") { "13.3" } else { "12.4" }
   Write-Info "release $($rel.tag_name), CUDA $cuda"
 
-  $binAsset   = $rel.assets | Where-Object { $_.name -like "*bin-win-cuda-$cuda-x64.zip" } | Select-Object -First 1
-  $cudartAsset= $rel.assets | Where-Object { $_.name -like "cudart-*win-cuda-$cuda-x64.zip" } | Select-Object -First 1
+  # Anchor on the "llama-" prefix. Both packages END in the same
+  # "bin-win-cuda-<ver>-x64.zip", so a trailing-wildcard match happily returns
+  # cudart-llama-bin-win-cuda-13.3-x64.zip as the binary and the extract then
+  # fails with no llama-server.exe in it.
+  $binAsset    = $rel.assets | Where-Object { $_.name -like "llama-*-bin-win-cuda-$cuda-x64.zip" } | Select-Object -First 1
+  $cudartAsset = $rel.assets | Where-Object { $_.name -like "cudart-*-win-cuda-$cuda-x64.zip"   } | Select-Object -First 1
   if (-not $binAsset) { throw "No CUDA $cuda x64 build in release $($rel.tag_name)." }
 
   $tmp = Join-Path $env:TEMP "seek-llama"
