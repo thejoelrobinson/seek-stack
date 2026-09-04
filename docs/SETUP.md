@@ -34,10 +34,15 @@ handles those.
 
 ## 2. Get the files
 
-Download this repository (green **Code** button → **Download ZIP**), then unzip
-it somewhere convenient like `C:\Users\you\seek-stack`.
+Click the green **Code** button at the top of the repository page, choose
+**Download ZIP**, then right-click the downloaded file and **Extract All**.
 
-If you have git:
+> **Watch the folder name.** GitHub names the ZIP's folder `seek-stack-main`,
+> not `seek-stack`. Windows also likes to extract into a folder of the same name,
+> so you can end up with `seek-stack-main\seek-stack-main\`. The folder you want
+> is whichever one has `install.cmd` sitting directly inside it.
+
+If you have git, it is simpler and the folder is named what you would expect:
 
 ```powershell
 git clone https://github.com/thejoelrobinson/seek-stack.git
@@ -48,16 +53,35 @@ cd seek-stack
 
 ## 3. Run the installer
 
-Open **PowerShell** (press Start, type PowerShell, hit Enter) and run:
+Open the extracted folder and **double-click `install.cmd`**.
+
+That is it. `install.cmd` works out where it lives and runs the installer from
+there, so it does not matter what folder you were in or what the folder is called.
+
+A blue-and-white PowerShell window opens and starts working through the steps.
+Leave it open — closing it stops the install partway.
+
+<details>
+<summary>Running it from a terminal instead</summary>
+
+The relative path only resolves if you are already in the right folder, which is
+what trips most people up:
 
 ```powershell
-cd C:\Users\you\seek-stack
+cd $HOME\Downloads\seek-stack-main
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Or sidestep the issue entirely with an absolute path:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$HOME\Downloads\seek-stack-main\install.ps1"
 ```
 
 > **Why `-ExecutionPolicy Bypass`?** Windows blocks downloaded scripts by
 > default. This allows this one script for this one run. It does not change any
 > system setting.
+</details>
 
 The installer walks through twelve steps and tells you what it is doing at each
 one. It will:

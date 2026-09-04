@@ -46,6 +46,11 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference    = "SilentlyContinue"   # Invoke-WebRequest is ~10x faster without it
 
+# Windows PowerShell 5.1 -- still the default shell on most machines -- can
+# negotiate TLS 1.0 by default, which GitHub and Hugging Face both refuse. Without
+# this the API calls fail with an unhelpful "underlying connection was closed".
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+
 $RepoDir  = $PSScriptRoot
 $SeekHome = "$env:USERPROFILE\.dsh"
 $HF_REPO  = "unsloth/Qwen3.8-27B-GGUF"

@@ -6,13 +6,31 @@ Built on the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 ## Install
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
+**1.** Download this repo — green **Code** button → **Download ZIP** — and extract it.
+
+**2.** Open the extracted folder and **double-click `install.cmd`**.
 
 That is the whole thing. It reads your GPU, picks a model size that fits, installs
 what is missing, downloads everything, and starts it. Re-run it if it stops
 partway — every step resumes.
+
+<details>
+<summary>Prefer the terminal?</summary>
+
+`cd` into the folder first, or the relative path will not resolve. Note that the
+ZIP extracts to **`seek-stack-main`**, not `seek-stack`:
+
+```powershell
+cd $HOME\Downloads\seek-stack-main
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+If you would rather not care where you are, give it the full path:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$HOME\Downloads\seek-stack-main\install.ps1"
+```
+</details>
 
 Then open **http://127.0.0.1:3080**.
 

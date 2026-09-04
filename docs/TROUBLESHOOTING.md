@@ -203,6 +203,37 @@ Start-ScheduledTask -TaskName SeekHarness                      # run it now
 
 ## Installer
 
+**"The argument '.\install.ps1' to the -File parameter does not exist"**
+
+PowerShell is not in the folder containing the script. `.\` means "in the folder
+I am currently in", and a fresh PowerShell window starts in your user folder, not
+wherever you extracted the files.
+
+The reliable fix is to **double-click `install.cmd`** instead — it locates itself
+and does not care where you started.
+
+If you would rather stay in the terminal, `cd` there first. Remember GitHub's ZIP
+extracts to **`seek-stack-main`**, and Windows may nest it one level deeper:
+
+```powershell
+cd $HOME\Downloads\seek-stack-main
+dir install.ps1                     # confirms you are in the right place
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Not sure where it landed? Find it:
+
+```powershell
+Get-ChildItem $HOME -Recurse -Filter install.ps1 -ErrorAction SilentlyContinue |
+  Select-Object -First 5 FullName
+```
+
+**"The underlying connection was closed" during download**
+
+Windows PowerShell 5.1 can negotiate TLS 1.0, which GitHub and Hugging Face both
+refuse. The installer forces TLS 1.2 on startup, so if you see this you are
+probably running an older copy — re-download the repository.
+
 **"running scripts is disabled on this system"**
 
 Use the documented invocation, which allows just this run:
