@@ -194,6 +194,58 @@ You will be asked to log in once, then a signed cookie keeps you in for 30 days.
 
 ---
 
+
+## Adding a second model
+
+The router (`llama.cpp/serve-router.ps1`) keeps only **one** model resident
+(`--models-max 1`) and evicts the least-recently-used one. That means a second
+model does **not** have to share VRAM or fall back to the CPU — whichever model
+you pick in the harness gets the whole GPU, and switching costs one model load.
+
+Measured on a 24 GB RTX 3090 with Qwen3.8-27B as the first model:
+
+| | Before (CPU-only) | After (router) |
+|---|---|---|
+| Gemma 4 26B-A4B | 12.6 tok/s | **196 tok/s** |
+| Model swap | n/a | **~11 s** |
+
+Gemma 4 26B-A4B is a Mixture-of-Experts model with only ~4B active parameters,
+which is why it is so much faster than its 26B size suggests once it is actually
+on the GPU.
+
+**1.** Download a GGUF, e.g. Gemma 4 26B-A4B QAT (13.3 GB) plus its separate MTP
+draft head (0.23 GB — Gemma ships this as its own file, unlike Qwen3.8 which
+carries MTP heads inside the main weights).
+
+**2.** Point `seek.config.ps1` at it:
+
+```powershell
+$Model2Path      = "$env:USERPROFILE\models\gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf"
+$Model2Alias     = "gemma-4-26b-a4b"
+$Model2Draft     = "$env:USERPROFILE\models\mtp-gemma-4-26B-A4B-it.gguf"
+$Model2SpecNMax  = 4
+$Model2GpuLayers = 99
+```
+
+**3.** Uncomment the `local-gemma4` provider block in `~\.dsh\settings.yaml`.
+It is shipped commented out so a default install never offers a model the router
+cannot serve. The `id:` there must equal `$Model2Alias`, and its `baseURL` is the
+**same** as the first provider's — one router serves every model and dispatches
+on the `"model"` field in the request.
+
+**4.** Restart: `powershell -File $env:USERPROFILE\start-seek.ps1`
+
+Both models then appear in the harness model picker.
+
+### Why the ids must match exactly
+
+In `models.ini` the **section name** is the identifier clients send as `"model"`.
+`serve-router.ps1` generates that file from `$ModelAlias` / `$Model2Alias`, so
+those two values, the INI section names, and the `id:` fields in `settings.yaml`
+are all the same string. A mismatch shows up as the router refusing the request
+rather than as a helpful error in the harness.
+
+
 ## Turning it off
 
 Stop everything for now:

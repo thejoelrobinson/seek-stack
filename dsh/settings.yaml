@@ -53,6 +53,37 @@ llm-pi-ai:
             thinkingFormat: deepseek
             supportsReasoningEffort: true
 
+    # --- Optional second model -------------------------------------------
+    # Uncomment this block ONLY if you set $Model2Path in seek.config.ps1.
+    # Left commented by default so the model picker never offers something the
+    # router cannot serve. The baseURL is deliberately the SAME as the block
+    # above: one router on :18798 (behind the shim on :18800) serves every
+    # model and dispatches on the "model" field, keeping one resident at a time
+    # so each gets the whole GPU.
+    #
+    # local-gemma4:
+    #   api: openai-completions
+    #   baseURL: http://127.0.0.1:18800/v1
+    #   apiKeyEnv: LOCAL_LLM_API_KEY
+    #   streamIdleTimeoutMs: 1200000
+    #   reasoning: medium
+    #   models:
+    #     - id: gemma-4-26b-a4b      # must equal $Model2Alias
+    #       contextWindow: 65536     # the SERVED -c, not Gemma 4's 256K native
+    #       maxTokens: 24576
+    #       reasoningEfforts:
+    #         low: low
+    #         medium: medium
+    #         high: high
+    #         xhigh: xhigh
+    #       compat:
+    #         # pi-ai guesses the thinking dialect from the endpoint URL and a
+    #         # 127.0.0.1 URL tells it nothing. `deepseek` puts reasoning_effort
+    #         # on the wire as a TOP-LEVEL field, which llama.cpp forwards into
+    #         # the chat template. Verified: low -> 49 tok vs 112 unforced.
+    #         thinkingFormat: deepseek
+    #         supportsReasoningEffort: true
+
     # Ollama - your existing model library on :11434
     local-ollama:
       api: openai-completions

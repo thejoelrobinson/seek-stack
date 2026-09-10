@@ -58,7 +58,7 @@ flowchart TD
     cf --> proxy["<b>18799</b> auth proxy<br/>server.js"]
     proxy --> web["<b>3080</b> dsh web"]
     web --> shim["<b>18800</b> summarizer shim<br/>summarizer-shim.js"]
-    shim --> llama["<b>18798</b> llama-server<br/>Qwen3.8-27B UD-Q5_K_XL"]
+    shim --> llama["<b>18798</b> llama.cpp router<br/>one model resident at a time"]
     web --> adapter["<b>18802</b> search adapter<br/>searxng-search-adapter.js"]
     adapter --> searx["<b>18801</b> SearXNG (docker)"]
 ```
@@ -70,7 +70,7 @@ Every port binds `127.0.0.1`. The only thing reachable from outside is the tunne
 | `18799` | `dsh/proxy/server.js` | HTTP Basic + cookie session, **the tunnel's only target** |
 | `3080` | `dsh web` | The harness UI |
 | `18800` | `dsh/proxy/summarizer-shim.js` | Rewrites the compaction call, forwards to `18798` |
-| `18798` | `llama-server` | Qwen3.8-27B, 64K ctx, MTP speculative decoding |
+| `18798` | `llama-server` (router) | Serves every model in `models.ini`, keeps **one** resident (`--models-max 1`) so it gets the whole GPU |
 | `18802` | `dsh/proxy/searxng-search-adapter.js` | Impersonates Anthropic's Messages API, forwards to `18801` |
 | `18801` | SearXNG (docker) | Local search index, no API key |
 
@@ -83,7 +83,7 @@ install.ps1                             one-shot installer
 uninstall.ps1                           removes it again
 seek.config.example.ps1                 every path, port and limit in one place
 start-seek.ps1                          orchestrator - starts everything, idempotent
-llama.cpp/serve-qwen38.ps1              llama-server launch flags
+llama.cpp/serve-router.ps1              generates models.ini, starts the router
 dsh/settings.yaml                       harness config: providers, context, reasoning
 dsh/profiles/web/cordis.patch.yml       plugin-tree patch: remote-safe directory picker
 dsh/proxy/server.js                     auth proxy (18799)
@@ -138,7 +138,7 @@ The proxy (`server.js`) does two things that matter:
 
 Each of these is a fix that is not obvious from the outside, kept here so it does not have to be rediscovered.
 
-**The port is not a liveness check.** `llama-server` binds `18798` immediately and serves `503 {"Loading model"}` until the weights are on the GPU — so a hung instance holds the port and looks healthy. Worse, on the first boot after a PC restart it has bound the port, read 36 MB of the GGUF, then stalled forever at 0 bytes/s with the GPU untouched — most likely the NVIDIA driver not being ready when the task fires a minute after logon. `start-seek.ps1` therefore health-checks rather than port-checks, and kills + retries once.
+**The port is not a liveness check.** In router mode `18798` answers `/health` **200 as soon as it binds**, before any weights load, so health alone proves nothing either — `start-seek.ps1` gates on a warmup completion instead. (Before router mode it bound the port and served `503 {"Loading model"}` until the weights were on the GPU — so a hung instance held the port and looked healthy.) Worse, on the first boot after a PC restart it has bound the port, read 36 MB of the GGUF, then stalled forever at 0 bytes/s with the GPU untouched — most likely the NVIDIA driver not being ready when the task fires a minute after logon. `start-seek.ps1` therefore gates on a real warmup completion rather than a port or health check, and kills + retries once.
 
 **MTP speculative decoding is mandatory.** Qwen3.8 ships nextn/MTP heads inside the GGUF. Without `--spec-type draft-mtp`, llama.cpp loads them, prints `unused tensor blk.*.nextn.* -- ignoring`, and leaves half the speed on the floor: **36.0 to 53.8 t/s (1.49x)** for +637 MB VRAM. `--spec-draft-n-max 2` is the 24 GB optimum; `3` was *worse* (44.9 t/s, acceptance collapsing 61.7% to 41.7%).
 

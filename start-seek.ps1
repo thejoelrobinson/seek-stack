@@ -42,21 +42,32 @@ function Test-Http($url) {
 
 Write-Log "=== seek stack startup ==="
 
-# 1. llama-server. Loading ~19 GB off disk takes ~60s cold.
+# 1. llama.cpp router. Serves every configured model from a generated
+#    models.ini and keeps only ONE resident (--models-max 1, LRU eviction), so
+#    whichever model you pick in the harness gets the whole GPU.
 #
-# NOTE: llama-server BINDS ITS PORT IMMEDIATELY and serves 503 {"Loading model"}
-# until the weights are on the GPU, so Test-Port is NOT a liveness check here --
-# a hung instance holds the port and looks fine. Health is the only truth.
-#
-# Observed on a first boot after a PC restart: the process bound the port, read
-# 36 MB of the GGUF, then stalled forever -- 0 bytes/s of I/O, ~2s of CPU over
-# 5 minutes, GPU untouched at 0%. A plain kill + restart loaded normally, so this
-# is a boot-time race, most likely the NVIDIA driver not being ready when the
-# task fires 1 min after logon. Hence: health-check, and kill + retry once.
-function Test-LlamaHealthy { Test-Http "http://127.0.0.1:$LlamaPort/health" }
+# NOTE: in router mode the port answers /health 200 as soon as the router BINDS,
+# before any weights are loaded -- health alone no longer proves the GPU path
+# works. The warmup POST below is the real liveness check: it forces the default
+# model to load and surfaces the boot-time race seen on a first boot after a PC
+# restart (the process bound the port, read 36 MB of the GGUF, then stalled
+# forever -- 0 bytes/s of I/O, GPU untouched at 0%; a kill + restart loaded
+# normally, most likely the NVIDIA driver not being ready when the task fires
+# 1 min after logon). Hence: warmup gate, and kill + retry once.
 
-if (Test-LlamaHealthy) {
-  Write-Log "llama-server already healthy on $LlamaPort, skipping"
+function Test-RouterUp { Test-Http "http://127.0.0.1:$LlamaPort/v1/models" }
+
+function Invoke-Warmup {
+  try {
+    $body = @{ model = $ModelAlias; max_tokens = 1; messages = @(@{ role = "user"; content = "hi" }) } | ConvertTo-Json -Depth 5
+    return (Invoke-WebRequest -Uri "http://127.0.0.1:$LlamaPort/v1/chat/completions" `
+              -Method Post -Body $body -ContentType "application/json" `
+              -TimeoutSec 300 -UseBasicParsing).StatusCode -eq 200
+  } catch { return $false }
+}
+
+if ((Test-RouterUp) -and (Invoke-Warmup)) {
+  Write-Log "router already healthy on $LlamaPort ($ModelAlias warm)"
 } else {
   $attempts = 2
   for ($try = 1; $try -le $attempts; $try++) {
@@ -67,20 +78,22 @@ if (Test-LlamaHealthy) {
       Start-Sleep -Seconds 5
     }
 
-    Write-Log "starting llama-server (attempt $try/$attempts)..."
-    & (Join-Path $LlamaDir "serve-qwen38.ps1") -ConfigPath $ConfigPath | Out-Null
+    Write-Log "starting llama.cpp router (attempt $try/$attempts)..."
+    & (Join-Path $LlamaDir "serve-router.ps1") -ConfigPath $ConfigPath | Out-Null
 
-    $deadline = (Get-Date).AddSeconds(240)
-    do {
-      Start-Sleep -Seconds 5
-      $ok = Test-LlamaHealthy
-    } while (-not $ok -and (Get-Date) -lt $deadline)
+    $deadline = (Get-Date).AddSeconds(60)
+    do { Start-Sleep -Seconds 3 } while (-not (Test-RouterUp) -and (Get-Date) -lt $deadline)
+    if (-not (Test-RouterUp)) {
+      Write-Log "WARN: router did not answer /v1/models within 60s on attempt $try (see $LlamaDir\router.log.err)"
+      continue
+    }
 
-    if ($ok) { Write-Log "llama-server healthy on $LlamaPort (attempt $try)"; break }
-    Write-Log "WARN: llama-server not healthy within 240s on attempt $try (see $LlamaDir\qwen38-server.log.err)"
+    Write-Log "router up; warming $ModelAlias onto the GPU (cold load of ~19 GB takes ~60s)..."
+    if (Invoke-Warmup) { Write-Log "router healthy on $LlamaPort ($ModelAlias loaded)"; break }
+    Write-Log "WARN: warmup failed on attempt $try (see $LlamaDir\router.log.err)"
   }
-  if (-not (Test-LlamaHealthy)) {
-    Write-Log "ERROR: llama-server still unhealthy after $attempts attempts - the harness will load but have no model"
+  if (-not (Test-RouterUp)) {
+    Write-Log "ERROR: router still not answering after $attempts attempts - the harness will load but have no model"
   }
 }
 
@@ -175,7 +188,7 @@ if (-not $TrustedHost) {
 # llama-server is reported by HEALTH, not by port: the port binds before the
 # model loads, so a port-based summary reported "True" for a server with no model.
 Write-Log ("=== done: llama(healthy)={0} shim={1} searxng={2} adapter={3} web={4} proxy={5} ===" -f `
-  (Test-LlamaHealthy), (Test-Port $ShimPort), (Test-Port $SearxPort), `
+  (Test-RouterUp), (Test-Port $ShimPort), (Test-Port $SearxPort), `
   (Test-Port $AdapterPort), (Test-Port $WebPort), (Test-Port $ProxyPort))
 
 if (-not $TrustedHost) {

@@ -309,7 +309,7 @@ New-Item -ItemType Directory -Force -Path `
 
 Copy-Item (Join-Path $RepoDir "dsh\proxy\*.js")                    (Join-Path $SeekHome "proxy")          -Force
 Copy-Item (Join-Path $RepoDir "dsh\profiles\web\cordis.patch.yml") (Join-Path $SeekHome "profiles\web")   -Force
-Copy-Item (Join-Path $RepoDir "llama.cpp\serve-qwen38.ps1")        $LlamaDir                              -Force
+Copy-Item (Join-Path $RepoDir "llama.cpp\serve-router.ps1")        $LlamaDir                              -Force
 
 # settings.yaml carries the context window, and it MUST equal what llama-server
 # actually serves. If VRAM forced a smaller context, rewrite it to match --
@@ -342,6 +342,15 @@ $configPath = Join-Path $SeekHome "seek.config.ps1"
 `$GpuLayers       = 99
 `$ReasoningBudget = 4096
 `$ReasoningEffort = "medium"
+
+# Optional second model. Set `$Model2Path to a GGUF and the router will serve it
+# too, keeping one model resident at a time so each gets the whole GPU.
+# See docs/SETUP.md#adding-a-second-model.
+`$Model2Path      = ""
+`$Model2Alias     = "gemma-4-26b-a4b"
+`$Model2Draft     = ""
+`$Model2SpecNMax  = 4
+`$Model2GpuLayers = 99
 
 `$TrustedHost = "$Hostname"
 

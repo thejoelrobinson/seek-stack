@@ -43,7 +43,10 @@ Get-NetTCPConnection -State Listen -LocalPort 18800,18798 | Select-Object LocalP
 
 **llama-server looks up but does not answer**
 
-A port check is not a health check here. `llama-server` **binds its port
+A port check is not a health check here, and in router mode neither is `/health` —
+the router answers 200 as soon as it binds, before any model loads. Ask it to
+actually generate something instead (see the warmup in `start-seek.ps1`).
+Historically `llama-server` **bound its port
 immediately** and returns `503 {"Loading model"}` until the weights are on the
 GPU, so a hung instance holds the port and looks fine.
 

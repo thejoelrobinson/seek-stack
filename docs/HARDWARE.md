@@ -69,12 +69,14 @@ models:
 
 ### Things that are Qwen3.8-specific
 
-Two flags in `serve-qwen38.ps1` will not apply to other models and should be
-removed if you switch:
+Two keys in that model's section of `models.ini` will not apply to other models
+and should be removed if you switch (the router keeps per-model sections, so
+this only affects the one model):
 
-- `--spec-type draft-mtp` — Qwen3.8 ships MTP draft heads inside the GGUF. On a
-  model without them this does nothing useful.
-- `--reasoning-budget` / `--reasoning-effort` — only meaningful for a model that
+- `spec-type = draft-mtp` — Qwen3.8 ships MTP draft heads inside the GGUF. On a
+  model without them this does nothing useful. (Gemma 4 ships its draft head as a
+  *separate* file, so it needs `model-draft = ...` alongside it.)
+- `reasoning-budget` / `reasoning-effort` — only meaningful for a model that
   reasons before answering.
 
 The `thinkingFormat: deepseek` line in `settings.yaml` is also specific: it is

@@ -1,7 +1,7 @@
 # seek-stack configuration.
 #
 # install.ps1 generates a filled-in `seek.config.ps1` next to this file and both
-# start-seek.ps1 and serve-qwen38.ps1 dot-source it. Edit that copy, not this one.
+# start-seek.ps1 and serve-router.ps1 dot-source it. Edit that copy, not this one.
 #
 # Every path here is absolute. Nothing in this stack looks things up relative to
 # the current directory, because it runs from a scheduled task whose working
@@ -40,6 +40,24 @@ $ReasoningBudget = 4096
 # Floor for requests that name no effort. low | medium | xhigh
 $ReasoningEffort = "medium"
 
+# --- Second model (optional) -------------------------------------------------
+
+# The router (see llama.cpp/serve-router.ps1) keeps only ONE model resident and
+# evicts the other, so BOTH can be ngl=99: whichever you pick in the harness
+# gets the whole GPU. Leave $Model2Path EMPTY to serve a single model.
+#
+# Measured on a 24 GB 3090: Gemma 4 26B-A4B is MoE (~4B active) and reaches
+# 196 t/s on the GPU, versus 12.6 t/s back when Qwen held all 24 GB and it had
+# to run on the CPU. Swapping between the two models costs about 11 seconds.
+#
+# $Model2Alias must ALSO exist as a provider + model id in settings.yaml, or the
+# harness will never offer it. See docs/SETUP.md#adding-a-second-model.
+$Model2Path      = ""
+$Model2Alias     = "gemma-4-26b-a4b"
+$Model2Draft     = ""    # optional separate MTP draft GGUF (Gemma 4 ships one)
+$Model2SpecNMax  = 4
+$Model2GpuLayers = 99
+
 # --- Remote access (optional) ------------------------------------------------
 
 # Leave EMPTY to run purely on localhost, which needs no domain and no tunnel.
@@ -55,7 +73,7 @@ $TrustedHost = ""
 
 # --- Ports (all bind 127.0.0.1) ----------------------------------------------
 
-$LlamaPort   = 18798   # llama-server
+$LlamaPort   = 18798   # llama.cpp router (serves every model below)
 $ShimPort    = 18800   # summarizer shim -> llama-server
 $SearxPort   = 18801   # SearXNG container
 $AdapterPort = 18802   # search adapter -> SearXNG
