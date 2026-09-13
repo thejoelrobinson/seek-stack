@@ -66,8 +66,13 @@ function Invoke-Warmup {
   } catch { return $false }
 }
 
-if ((Test-RouterUp) -and (Invoke-Warmup)) {
-  Write-Log "router already healthy on $LlamaPort ($ModelAlias warm)"
+# The healthy path deliberately does NOT warm. This task repeats every 15 minutes
+# to self-heal, and a warmup names ONE model -- with --models-max 1 that would
+# evict whichever model you are actually using and reload it, every cycle.
+# Answering /v1/models is enough to prove the router is alive; the warmup only
+# runs on the start path, where nothing is loaded yet anyway.
+if (Test-RouterUp) {
+  Write-Log "router already healthy on $LlamaPort"
 } else {
   $attempts = 2
   for ($try = 1; $try -le $attempts; $try++) {
@@ -81,7 +86,11 @@ if ((Test-RouterUp) -and (Invoke-Warmup)) {
     Write-Log "starting llama.cpp router (attempt $try/$attempts)..."
     & (Join-Path $LlamaDir "serve-router.ps1") -ConfigPath $ConfigPath | Out-Null
 
-    $deadline = (Get-Date).AddSeconds(60)
+    # 60s was not enough from cold: observed the router failing to answer within
+    # 60s on BOTH attempts after a reboot, leaving the stack modelless until
+    # someone noticed. Loading llama-server.exe and its CUDA DLLs cold, with a
+    # virus scanner in the path, can take minutes.
+    $deadline = (Get-Date).AddSeconds(180)
     do { Start-Sleep -Seconds 3 } while (-not (Test-RouterUp) -and (Get-Date) -lt $deadline)
     if (-not (Test-RouterUp)) {
       Write-Log "WARN: router did not answer /v1/models within 60s on attempt $try (see $LlamaDir\router.log.err)"

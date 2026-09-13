@@ -20,6 +20,15 @@ $action = New-ScheduledTaskAction -Execute "powershell.exe" `
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $me
 $trigger.Delay = "PT1M"   # let the network and the NVIDIA driver settle first
 
+# Repeat forever. At-logon alone is a single point of failure: if the model
+# server loses its race at boot the task returns 1 and NOTHING retries, so the
+# stack sits there with no model until a human notices (observed: two days).
+# start-seek.ps1 is idempotent -- every step is skipped when its port is already
+# healthy -- so re-running it costs nothing when all is well.
+$trigger.Repetition = New-CimInstance -ClassName MSFT_TaskRepetitionPattern `
+  -Namespace Root/Microsoft/Windows/TaskScheduler -ClientOnly `
+  -Property @{ Interval = "PT15M"; StopAtDurationEnd = $false }
+
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
 #              ExecutionTimeLimit 0 ^ so a slow 18.8 GB model load is never killed
