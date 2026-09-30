@@ -1,0 +1,160 @@
+/* Seek's character (work-buddy.js). Motion (body, arms, sprout, face, blinks, props) is a
+   spring/physics rig in JS; CSS draws it, swaps expressions by data-s, and runs a few
+   small particle loops (thought dots, zzz, sweat, sparkles) that start at --bp. */
+:root{--b-hi:#fdf8ff;--b-mid:#cdbcf0;--b-deep:#8b73c6;--b-cheek:#ff9dbb;--b-line:#7560ad;--b-eye:#2a2140}
+.buddy{--bs:44px;--bp:0s;position:relative;display:inline-block;width:var(--bs);height:var(--bs);flex:none;line-height:0;vertical-align:middle;-webkit-tap-highlight-color:transparent}
+.buddy svg{display:block;width:100%;height:100%;overflow:visible}
+.buddy .b-shadow{fill:#2a1d4a;opacity:.13;filter:blur(1.5px)}
+.buddy .b-foot{fill:color-mix(in srgb,var(--b-mid) 42%,white);stroke:var(--b-hi);stroke-opacity:.55;stroke-width:1.1}
+.buddy .b-stem{fill:none;stroke:#5a9e6e;stroke-width:2;stroke-linecap:round}
+.buddy .b-leaf{fill:#88d09d;stroke:#5a9e6e;stroke-width:.8}
+.buddy .b-plush-detail{pointer-events:none}
+.buddy .b-plush-tint{mix-blend-mode:color;pointer-events:none}
+.buddy .b-cheek{fill:var(--b-cheek);opacity:.7;filter:blur(.9px);transition:opacity .4s}
+.buddy .b-eye ellipse{fill:var(--b-eye)}.buddy .b-shine{fill:#fff}
+.buddy .b-eyes-happy path,.buddy .b-eyes-closed path,.buddy .b-brows path{fill:none;stroke:var(--b-eye);stroke-width:2.6;stroke-linecap:round}
+.buddy .b-brows path{stroke-width:2;opacity:.75}
+.buddy .b-m{fill:none;stroke:var(--b-eye);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.buddy .b-m-o,.buddy .b-m-sleep{fill:var(--b-eye);stroke:none}
+.buddy .b-m-open path{fill:var(--b-eye);stroke:var(--b-eye);stroke-width:1.2}.buddy .b-tongue{fill:#ef8aa0;stroke:none}
+.buddy .b-arm path{fill:none;stroke-linecap:round}
+.buddy .b-arm-edge{stroke:var(--b-hi);stroke-opacity:.85;stroke-width:15}
+.buddy .b-arm-fill{stroke:color-mix(in srgb,var(--b-mid) 40%,white);stroke-width:12.6}
+.buddy .b-hand{fill:color-mix(in srgb,var(--b-mid) 42%,white);stroke:var(--b-hi);stroke-opacity:.7;stroke-width:1.3}
+.buddy .b-glow{opacity:0}
+.buddy .b-laptop .b-base{fill:#3a3350}
+.buddy .b-logo path,.buddy .b-logo circle{fill:none;stroke:#b9f0c9;stroke-width:1.3;stroke-linecap:round}
+.buddy .b-logo-sprout path+path{fill:#b9f0c9;stroke:none}
+.buddy .b-key{fill:#fff;stroke:var(--b-line);stroke-opacity:.5;stroke-width:.8}
+.buddy .b-think circle,.buddy .b-think ellipse{fill:#fff;stroke:var(--b-line);stroke-opacity:.35;stroke-width:1}
+.buddy .b-think .b-td{fill:var(--b-deep);stroke:none}
+.buddy .b-alert-dot{fill:#ffb547;stroke:#fff;stroke-width:1.5}.buddy .b-alert path{stroke:#fff;stroke-width:2.8;stroke-linecap:round}.buddy .b-alert-pt{fill:#fff}
+.buddy .b-sign rect{fill:#fff;stroke:#e2c991;stroke-width:1.6}.buddy .b-stick{stroke:#c9a86a;stroke-width:2.4;stroke-linecap:round}
+.buddy .b-check{fill:none;stroke:#5f9c80;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.buddy .b-star{fill:#ffd166;transform-box:fill-box;transform-origin:center}
+.buddy .b-zzz text{font:700 10px ui-rounded,system-ui,sans-serif;fill:var(--b-deep);text-anchor:middle;opacity:0}
+.buddy .b-q text{font:800 17px ui-rounded,system-ui,sans-serif;fill:var(--b-deep)}
+.buddy .b-sweat{fill:#aee0ff;stroke:#6fb6e8;stroke-width:.8}
+.buddy .b-heart path{fill:#ff7aa2}
+.buddy .b-acc-glasses circle{fill:#fff;fill-opacity:.14;stroke:#3a3048;stroke-width:1.8}.buddy .b-acc-glasses path{fill:none;stroke:#3a3048;stroke-width:1.8}
+.buddy .b-acc-shades path{fill:#1f1a29}.buddy .b-acc-shades .b-bridge{fill:none;stroke:#1f1a29;stroke-width:2}
+.buddy .b-acc-shades .b-glint{fill:none;stroke:#fff;stroke-opacity:.55;stroke-width:1.4;stroke-linecap:round}
+.buddy .b-acc-headphones .b-band{fill:none;stroke:#3f3a55;stroke-width:4.5;stroke-linecap:round}.buddy .b-acc-headphones rect{fill:#3f3a55}
+.buddy .b-acc-beanie path{fill:#ec7a5f}.buddy .b-acc-beanie .b-rim{fill:#d6624a}.buddy .b-acc-beanie .b-pom{fill:#fff3ea}
+.buddy .b-acc-bow path,.buddy .b-acc-bow circle{fill:#ff7aa2}
+
+/* props the rig pops in and out (data-on while shown); a hidden ancestor still hides them */
+.buddy :is(.b-laptop,.b-think,.b-alert,.b-sign,.b-q,.b-key):not([data-on]){visibility:hidden}
+
+/* expressions, swapped by state (the rig blinks as they change, which hides the swap) */
+.buddy .b-eyes-happy,.buddy .b-eyes-closed,.buddy .b-brows,.buddy .b-m,.buddy .b-acc,.buddy .b-sweat,.buddy .b-zzz,.buddy .b-heart,.buddy .b-sparkles,.buddy .b-logo{display:none}
+.buddy .b-m-smile{display:inline}
+[data-buddy-acc=glasses] .buddy .b-acc-glasses,[data-buddy-acc=shades] .buddy .b-acc-shades,[data-buddy-acc=headphones] .buddy .b-acc-headphones,[data-buddy-acc=bow] .buddy .b-acc-bow,[data-buddy-acc=beanie] .buddy .b-acc-beanie{display:inline}
+[data-buddy-acc=beanie] .buddy .b-sprout{display:none}
+.buddy[data-s=listen] .b-cheek{opacity:.75}
+.buddy[data-s=think] .b-m-smile,.buddy[data-s=type] .b-m-smile,.buddy[data-s=browse] .b-m-smile,.buddy[data-s=wave] .b-m-smile,.buddy[data-s=hello] .b-m-smile,.buddy[data-s=approve] .b-m-smile,.buddy[data-s=celebrate] .b-m-smile,.buddy[data-s=sent] .b-m-smile,.buddy[data-s=wake] .b-m-smile,.buddy[data-s=oops] .b-m-smile,.buddy[data-s=sleep] .b-m-smile,.buddy[data-s=offline] .b-m-smile{display:none}
+.buddy[data-s=think] .b-m-flat,.buddy[data-s=type] .b-m-flat{display:inline}
+.buddy[data-s=browse] .b-m-o,.buddy[data-s=approve] .b-m-o,.buddy[data-s=wake] .b-m-o{display:inline}
+.buddy[data-s=wave] .b-m-open,.buddy[data-s=hello] .b-m-open,.buddy[data-s=celebrate] .b-m-open,.buddy[data-s=sent] .b-m-open{display:inline}
+.buddy[data-s=oops] .b-m-wobble,.buddy[data-s=offline] .b-m-wobble{display:inline}
+.buddy[data-s=sleep] .b-m-sleep{display:inline}
+.buddy[data-s=type] .b-brows-focus,.buddy[data-s=oops] .b-brows-worry{display:inline}
+.buddy[data-s=celebrate] .b-eyes,.buddy[data-s=happy] .b-eyes,.buddy[data-s=sent] .b-eyes,.buddy[data-s=sleep] .b-eyes{display:none}
+.buddy[data-s=celebrate] .b-eyes-happy,.buddy[data-s=happy] .b-eyes-happy,.buddy[data-s=sent] .b-eyes-happy,.buddy[data-s=sleep] .b-eyes-closed{display:inline}
+.buddy[data-s=type] .b-logo-sprout,.buddy[data-s=browse] .b-logo-globe{display:inline}
+.buddy[data-s=hello] .b-cheek,.buddy[data-s=blind] .b-cheek,.buddy[data-s=celebrate] .b-cheek,.buddy[data-s=happy] .b-cheek{opacity:.85}
+.buddy[data-s=offline] svg{filter:grayscale(.85) opacity(.8);transition:filter .6s}
+
+/* small particle loops */
+.buddy[data-s=think] .b-td{animation:bd-dot 1.2s cubic-bezier(.45,0,.55,1) var(--bp) infinite}
+.buddy[data-s=think] .b-td.t2{animation-delay:calc(var(--bp) - 1s)}.buddy[data-s=think] .b-td.t3{animation-delay:calc(var(--bp) - .8s)}
+@keyframes bd-dot{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-2.6px);opacity:1}}
+.buddy[data-s=oops] .b-sweat{display:inline;animation:bd-sweat 1.5s cubic-bezier(.5,0,.8,.5) var(--bp) infinite}
+@keyframes bd-sweat{0%{transform:translateY(-3px) scale(.6);opacity:0}25%{opacity:1;transform:translateY(-1px) scale(1)}100%{transform:translateY(8px) scale(.9,1.15);opacity:0}}
+.buddy[data-s=sleep] .b-zzz{display:inline}
+.buddy.burst .b-sparkles{display:inline}
+.buddy.burst .b-star{animation:bd-spark .85s cubic-bezier(.2,.9,.3,1) both}
+.buddy.burst .s2{animation-delay:.05s}.buddy.burst .s3{animation-delay:.1s}.buddy.burst .s4{animation-delay:.07s}.buddy.burst .s5{animation-delay:.12s}.buddy.burst .s6{animation-delay:.03s}
+@keyframes bd-spark{0%{transform:scale(0) rotate(0);opacity:0}35%{transform:scale(1.25) rotate(40deg);opacity:1}100%{transform:scale(0) rotate(95deg);opacity:0}}
+.buddy.bd-poke .b-heart{display:inline;transform-origin:60px 22px;animation:bd-heart .9s cubic-bezier(.2,.8,.3,1) both}
+@keyframes bd-heart{0%{transform:translateY(8px) scale(.2);opacity:0}30%{opacity:1;transform:translateY(0) scale(1.15)}45%{transform:translateY(-2px) scale(1)}100%{transform:translateY(-14px) scale(1.05);opacity:0}}
+.buddy.still *{animation:none!important}
+@media(prefers-reduced-motion:reduce){.buddy *{animation:none!important;transition:none!important}}
+
+/* ── placements ── */
+.buddy-stage{position:relative;display:inline-flex;flex-direction:column;align-items:center;gap:5px;border:0;background:none;padding:0;color:inherit}
+button.buddy-stage:hover{background:none}
+.buddy-stage .buddy{cursor:pointer}
+.buddy-name{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;line-height:1.2;color:#4d4163;background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 10px;box-shadow:0 2px 8px #2a1d4a10;white-space:nowrap}
+.buddy-name i{width:6px;height:6px;border-radius:50%;background:#5f9c80;transition:background .3s}
+body[data-agent=type] .buddy-name i,body[data-agent=browse] .buddy-name i,body[data-agent=think] .buddy-name i{background:#8e78c8;animation:pulse 1.2s infinite}
+body[data-agent=wave] .buddy-name i,body[data-agent=approve] .buddy-name i,body[data-agent=blind] .buddy-name i{background:#f0a531}
+body[data-agent=offline] .buddy-name i,body[data-agent=sleep] .buddy-name i{background:#aaa3b3}
+.buddy-say{position:absolute;z-index:40;width:max-content;max-width:230px;background:#fff;color:#3b3149;border:1px solid #e3dcef;border-radius:14px;padding:8px 12px;font-size:12.5px;font-weight:500;line-height:1.4;text-align:left;white-space:normal;box-shadow:0 8px 26px #2a1d4a1f;pointer-events:none;opacity:0;transform:translateY(4px) scale(.96);transition:opacity .2s,transform .28s cubic-bezier(.3,1.5,.5,1)}
+.buddy-say.show{opacity:1;transform:none}
+.buddy-stage.hero{margin:0 auto 18px}
+.buddy-stage.hero .buddy-say{left:calc(50% + 56px);top:4px;border-bottom-left-radius:4px}
+.welcome .buddy-stage.hero .buddy-name{display:none}
+#buddy-top{display:none}
+.buddy-stage.top .buddy-say{top:calc(100% + 4px);left:0}
+.buddy-stage.panel .buddy-say{top:calc(100% + 2px);left:6px}
+.ap-head .buddy-stage{flex:none}
+.ap-close{display:none}
+.brand .buddy{grid-row:span 2}
+.speaker{display:flex;align-items:center;gap:6px}.speaker .buddy{margin:-3px 0}
+.typing-row{display:flex;align-items:flex-end;gap:10px;margin:18px 0}
+.typing-row .buddy{margin-bottom:-4px}
+.typing-bubble{display:inline-flex;align-items:center;gap:10px;background:#fff;border:1px solid #eeebe6;border-radius:17px;border-bottom-left-radius:5px;padding:11px 15px;font-size:13px;color:#6f6480;max-width:calc(100% - 60px)}
+.typing-bubble .tdots{display:inline-flex;gap:3px}
+.typing-bubble .tdots i{width:5px;height:5px;border-radius:50%;background:#a897ba;animation:bd-tdot 1.2s ease-in-out infinite}
+.typing-bubble .tdots i:nth-child(2){animation-delay:.15s}.typing-bubble .tdots i:nth-child(3){animation-delay:.3s}
+@keyframes bd-tdot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-3px);opacity:1}}
+.typing-row.quiet .typing-bubble{background:transparent;border-style:dashed}
+.caret{display:inline-block;width:2px;height:1.05em;margin-left:1px;vertical-align:-2px;background:#8e78c8;animation:bd-caret .8s steps(1) infinite}
+@keyframes bd-caret{50%{opacity:0}}
+.ask-head{display:flex;align-items:center;gap:8px}
+.bv-kicker .buddy{margin:-8px 6px -6px 0}
+.conv-title{display:none}
+.id-card{display:flex;align-items:center;gap:14px;border:1px solid var(--line);border-radius:16px;background:#fff;padding:12px 14px;margin:0 0 10px}
+.id-card strong{display:block;font-size:15px}.id-card span.id-sub{display:block;font-size:11px;color:var(--muted);margin:2px 0 8px}
+.id-card button{font-size:11px;padding:6px 10px}
+.look-editor{display:grid;grid-template-columns:150px 1fr;gap:18px;align-items:center;border:1px solid #dedadf;border-radius:16px;background:#fff;padding:14px 18px}
+.look-preview{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px;height:170px;border-radius:12px;background:radial-gradient(circle at 50% 55%,#f4f0fb,#fff 70%)}
+.look-pose{font-size:11px;color:var(--muted);min-height:14px}
+.look-row{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px}.look-row:last-child{margin-bottom:0}
+.look-label{font-size:11px;color:var(--muted);letter-spacing:.3px}
+.memory label.swatch,.memory label.chip{display:inline-flex;margin:0;cursor:pointer;position:relative}
+.swatch input,.chip input{position:absolute;opacity:0;width:1px;height:1px}
+.swatch span{width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 36% 30%,var(--sw-hi) 0,var(--sw-mid) 50%,var(--sw-deep) 100%);box-shadow:inset 0 0 0 1px #0000001a;transition:transform .15s}
+.swatch input:checked+span{box-shadow:0 0 0 2px #fff,0 0 0 4px #74618e;transform:scale(1.06)}
+.swatch input:focus-visible+span,.chip input:focus-visible+span{outline:3px solid #a89ad0;outline-offset:3px}
+.chip span{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:6px 11px;background:#fbfaf8}
+.chip input:checked+span{background:#ece6f7;border-color:#b9a8dc;color:#4d3f70;font-weight:600}
+.panel-scrim{display:none}
+.topbar>div{flex:1;min-width:0}
+@media(min-width:641px) and (max-width:1199px){
+  .topbar{gap:12px}
+  #buddy-top{display:inline-flex;flex-direction:row}
+  #buddy-top .buddy-name{display:none}
+  body.panel-open .agent-panel{top:14px;right:14px;bottom:14px;width:380px;border-radius:20px}
+}
+@media(max-width:1199px){
+  body.panel-open .agent-panel{display:flex;flex-direction:column;position:fixed;z-index:70;background:#fbfaf7;box-shadow:0 -20px 60px #1d122b33;animation:sheet-up .32s cubic-bezier(.2,.9,.3,1)}
+  body.panel-open .panel-scrim{display:block;position:fixed;inset:0;z-index:65;background:#221c2c66;backdrop-filter:blur(2px)}
+  body.panel-open .ap-close{display:block;margin-left:auto;border:0;background:#efece6;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px}
+  body.has-hero #buddy-top{visibility:hidden}
+}
+@keyframes sheet-up{from{transform:translateY(40px);opacity:0}}
+@media(max-width:640px){
+  #buddy-top{display:inline-flex;position:absolute;left:50%;top:5px;transform:translateX(-50%);z-index:5}
+  .topbar{position:relative}.topbar>div{visibility:hidden}
+  .buddy-stage.top .buddy-say{left:50%;transform:translate(-50%,4px) scale(.96)}
+  .buddy-stage.top .buddy-say.show{transform:translate(-50%,0)}
+  .buddy-stage.hero{margin-bottom:10px}
+  .buddy-stage.hero .buddy{--bs:132px!important}
+  .buddy-stage.hero .buddy-say{left:calc(50% + 44px);max-width:150px}
+  .conv-title{display:block;font-size:17px;font-weight:600;line-height:1.35;margin:0 0 10px;color:#3a3147}
+  body.panel-open .agent-panel{left:0;right:0;bottom:0;height:min(80dvh,640px);border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom)}
+  body.panel-open .agent-panel:before{content:'';position:absolute;top:8px;left:50%;width:38px;height:4px;margin-left:-19px;border-radius:2px;background:#d9d4de}
+  .look-editor{grid-template-columns:1fr}.look-preview{height:130px}
+}

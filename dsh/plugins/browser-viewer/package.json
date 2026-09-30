@@ -1,0 +1,26 @@
+{
+  "name": "@deepseek-ai/dsh-browser-viewer",
+  "version": "0.3.0",
+  "description": "Drive a remote Chrome over CDP and stream its viewport into the DSH web GUI, with both user (mouse/keyboard) and agent (tools) driving.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [],
+      "immediately": true
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "test": "node test/browser.test.mjs"
+  },
+  "license": "MIT"
+}

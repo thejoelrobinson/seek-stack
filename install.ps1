@@ -310,6 +310,7 @@ New-Item -ItemType Directory -Force -Path `
 Copy-Item (Join-Path $RepoDir "dsh\proxy\*.js")                    (Join-Path $SeekHome "proxy")          -Force
 Copy-Item (Join-Path $RepoDir "dsh\profiles\web\cordis.patch.yml") (Join-Path $SeekHome "profiles\web")   -Force
 Copy-Item (Join-Path $RepoDir "llama.cpp\serve-router.ps1")        $LlamaDir                              -Force
+& (Join-Path $RepoDir "dsh\plugins\browser-viewer\install.ps1") -DshHome $SeekHome
 
 # settings.yaml carries the context window, and it MUST equal what llama-server
 # actually serves. If VRAM forced a smaller context, rewrite it to match --

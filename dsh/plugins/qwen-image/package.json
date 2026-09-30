@@ -1,0 +1,10 @@
+{
+  "name": "@deepseek-ai/dsh-qwen-image",
+  "version": "0.1.0",
+  "description": "Private local Qwen Image 2.1 generation plugin for DeepSeek Harness.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": { ".": "./lib/index.js", "./service": "./lib/image-service.js" },
+  "files": ["lib"],
+  "license": "MIT"
+}

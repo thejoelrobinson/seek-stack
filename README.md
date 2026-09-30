@@ -37,6 +37,18 @@ Then open **http://127.0.0.1:3080**.
 You need an NVIDIA GPU with **10 GB of VRAM or more** and ~25 GB of free disk.
 Node, Docker and llama.cpp are installed for you if missing.
 
+## Work app
+
+The installer also deploys Seek Work and its browser viewer. Open
+**http://127.0.0.1:3080/work** for conversations, background tasks, the animated
+character, browser handoff, files, finance, and connected apps. The Images tab
+offers a separate one-time setup for the optional local Qwen Image runner.
+
+See [Work mode](dsh/plugins/browser-viewer/WORK-MODE.md) and
+[browser control](dsh/plugins/browser-viewer/README.md). To update just the Work
+plugins on an existing harness, run the browser-viewer install.ps1 script and
+restart the web harness.
+
 ## Documentation
 
 | | |
@@ -67,7 +79,7 @@ Every port binds `127.0.0.1`. The only thing reachable from outside is the tunne
 
 | Port | Process | Role |
 |---|---|---|
-| `18799` | `dsh/proxy/server.js` | HTTP Basic + cookie session, **the tunnel's only target** |
+| `18799` | `dsh/proxy/server.js` | form sign-in + cookie session, **the tunnel's only target** |
 | `3080` | `dsh web` | The harness UI |
 | `18800` | `dsh/proxy/summarizer-shim.js` | Rewrites the compaction call, forwards to `18798` |
 | `18798` | `llama-server` (router) | Serves every model in `models.ini`, keeps **one** resident (`--models-max 1`) so it gets the whole GPU |
@@ -117,7 +129,7 @@ curl.exe -s -o NUL -w "%{http_code}\n" http://127.0.0.1:3080        # the UI
 curl.exe -s -o NUL -w "%{http_code}\n" http://127.0.0.1:18798/health # the model
 ```
 
-Through a tunnel, **401 is success** — that is the auth proxy challenging you.
+Through a tunnel, unauthenticated pages redirect to the sign-in form (HTTP 303); API requests return 401.
 **502 means the tunnel is up but the origin is down**: run `start-seek.ps1`. The
 last line of `~/.dsh/autostart.log` summarises every service.
 
@@ -129,7 +141,7 @@ The harness has **no authentication of its own**, and its Standard agent preset 
 
 The proxy (`server.js`) does two things that matter:
 
-- **Basic auth mints a signed cookie.** Basic alone re-prompted every few minutes, because browsers do not attach cached Basic credentials to WebSocket handshakes — every `/api/events.mux` reconnect drew a `401 + WWW-Authenticate` and popped the login dialog. Now the first successful auth issues an HMAC-signed 30-day `dsh_auth` cookie, checked *before* Basic. The signing secret persists at `.dsh/proxy/.secret` (gitignored) so a restart does not sign everyone out.
+- **Sign-in mints a signed cookie.** The proxy validates the owner or partner login, then issues a 30-day HMAC-signed dsh_auth cookie. The signing secret persists under the local DSH proxy directory, so a restart does not sign everyone out. Login uses a CSRF token and rate limits attempts.
 - **Upgrades are never challenged.** A failed WebSocket handshake returns `401` with *no* `WWW-Authenticate`, so it cannot raise a browser prompt.
 
 ---

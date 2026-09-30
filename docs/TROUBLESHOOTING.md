@@ -157,16 +157,13 @@ Search activity is logged to `%USERPROFILE%\.dsh\proxy\search.log`.
 The tunnel is up but the stack is down. This is the normal symptom of a machine
 that rebooted without the stack restarting. Run `start-seek.ps1`.
 
-**401 from your domain**
+**Sign-in page from your domain**
 
-**That is success.** It is the auth proxy asking you to log in.
+That is expected when you are signed out. The proxy redirects page requests to its sign-in form; unauthenticated API requests return 401.
 
 **It asks for the password over and over**
 
-That was a real bug and is fixed — browsers do not attach saved passwords to
-WebSocket connections, so every reconnect re-prompted. The proxy now issues a
-signed 30-day cookie on first login. If it still happens, your browser is
-blocking cookies for the site.
+The proxy uses a signed 30-day cookie after login. If the sign-in form keeps returning, check whether your browser is blocking cookies for the site.
 
 **Forgot the password**
 
