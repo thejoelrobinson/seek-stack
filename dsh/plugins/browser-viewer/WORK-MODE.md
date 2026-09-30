@@ -39,7 +39,9 @@ pauses the current Work task; **Resume agent** continues it.
   schedules its next occurrence after successful completion; a failed or paused
   occurrence does not silently create more copies.
 - Completion and question alerts appear in the app. Browser notifications are
-  opt-in and require the page to remain open. There is no external push service.
+  opt-in; a service worker can deliver them while the page is closed on supported
+  devices, provided the host and harness are online. Push requests carry no
+  message payload; the service worker fetches details from Seek after delivery.
 
 ## Model interaction
 

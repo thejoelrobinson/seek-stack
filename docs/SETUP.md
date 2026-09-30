@@ -187,8 +187,8 @@ cloudflared tunnel route dns seek seek.example.com
 Restart-Service Cloudflared -Force
 ```
 
-**5.** Visit your hostname. A **401 login prompt means it is working.** A **502
-means the tunnel is up but the stack is not** — run `start-seek.ps1`.
+**5.** Visit your hostname. The **Seek sign-in page means it is working**.
+A **502 means the tunnel is up but the stack is not** — run `start-seek.ps1`.
 
 You will be asked to log in once, then a signed cookie keeps you in for 30 days.
 

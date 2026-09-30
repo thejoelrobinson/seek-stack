@@ -44,10 +44,11 @@ The installer also deploys Seek Work and its browser viewer. Open
 character, browser handoff, files, finance, and connected apps. The Images tab
 offers a separate one-time setup for the optional local Qwen Image runner.
 
-See [Work mode](dsh/plugins/browser-viewer/WORK-MODE.md) and
-[browser control](dsh/plugins/browser-viewer/README.md). To update just the Work
-plugins on an existing harness, run the browser-viewer install.ps1 script and
-restart the web harness.
+See the [Seek Work wiki](https://github.com/thejoelrobinson/seek-stack/wiki)
+for features and how-to guides. [Work mode](dsh/plugins/browser-viewer/WORK-MODE.md)
+and [browser control](dsh/plugins/browser-viewer/README.md) have implementation
+notes. To update just the Work plugins on an existing harness, run the
+browser-viewer install.ps1 script and restart the web harness.
 
 ## Documentation
 
