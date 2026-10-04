@@ -29,8 +29,8 @@ try {
   first=await api('task',{objective:`Use the browser to open http://127.0.0.1:${fixture.address().port}, enter exactly Background works in Note and click Save note. Read the confirmation. Read the attached brief.txt, create result.txt with exactly its requested output, and register it with work_artifact. Keep a short plan with work_progress. Use get_goal/update_goal to mark complete only after verifying both the form and file.`,files:[{name:'brief.txt',data:Buffer.from('The report must contain exactly: VERIFIED WORK MODE').toString('base64')}]});
   await ui.close();
   const done=await wait(async()=>{const t=await taskState(first.id);if(t.status==='attention'||t.status==='waiting')throw new Error('Task needs attention: '+JSON.stringify({error:t.error,question:t.question,messages:t.messages.slice(-1)}));return t.status==='complete'?t:false;},'background browser + artifact');
-  assert.equal(submitted,'Background works');assert.ok(done.artifacts.length>0);assert.ok(done.plan.length>0);
-  const artifact=done.artifacts.find(a=>a.path.endsWith('result.txt'));assert.ok(artifact);
+  assert.equal(submitted,'Background works');assert.ok(done.artifacts.length>0);assert.ok(done.plan.length>0);assert.equal(done.resultEvidence.status,'verified');assert.ok(!done.messages.some(m=>/value is not lossless JSON/.test(m.text||'')),'Outcome tool serialization failed');
+  const artifact=done.artifacts.find(a=>(a.originalPath||a.path).endsWith('result.txt'));assert.ok(artifact);
   const response=await fetch(`${origin}/work/api/artifact?task=${done.id}&id=${artifact.id}`);assert.equal((await response.text()).trim(),'VERIFIED WORK MODE');
   assert.match(response.headers.get('content-disposition'),/attachment/);
   console.log('PASS: task finished after UI closed; real model browsed, submitted, created and attached a verified file.');

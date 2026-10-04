@@ -15,14 +15,30 @@ const HOLD = /(\d+)/g;
 /** Marks where a typewriter caret goes; callers replace it after rendering. */
 export const CARET = '';
 
+// Set only for the duration of one md() call; maps a task-relative path to {url, preview, image}.
+let resolveFile = null;
+const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
+const FILE_NAME = /^[\w.\/\\-]{1,180}\.[A-Za-z0-9]{1,6}$/;
+function fileLink(whole, label, hold) {
+  const target = whole.slice(whole.indexOf('](') + 2, -1), file = resolveFile?.(target.replace(/&amp;/g, '&'));
+  if (!file) return label;
+  if (whole.startsWith('!') && IMAGE.test(target)) return hold(`<a class="md-media" href="${esc(file.preview || file.url)}" ${LINK}><img src="${esc(file.url)}" alt="${label}" loading="lazy" decoding="async"></a>`);
+  return `<a class="md-file" href="${hold(esc(file.preview || file.url))}" ${LINK}>${label}</a>`;
+}
+
 export function inline(text) {
   const held = [];
   const hold = html => `${held.push(html) - 1}`;
   let h = esc(String(text ?? '').replace(/[]/g, ''));
-  h = h.replace(/`([^`\n]+)`/g, (_, code) => hold(`<code>${code}</code>`));
+  // A code span that names a recorded artifact exactly (e.g. `notes/plan.md`) links to it.
+  h = h.replace(/`([^`\n]+)`/g, (_, code) => {
+    const file = resolveFile && FILE_NAME.test(code) ? resolveFile(code.replace(/&amp;/g, '&')) : null;
+    return hold(file ? `<a class="md-file" href="${esc(file.preview || file.url)}" ${LINK}><code>${code}</code></a>` : `<code>${code}</code>`);
+  });
   h = h.replace(/!?\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => `<a href="${hold(url)}" ${LINK}>${label}</a>`);
-  // Links to anything but a web address (e.g. a file name in the task folder) keep their label as plain text.
-  h = h.replace(/!?\[([^\]\n]+)\]\((?!https?:)[^\s)\uE010]+\)/g, '$1');
+  // Links to a file in the task folder resolve only to a recorded artifact (a trusted Work URL);
+  // anything else keeps its label as plain text.
+  h = h.replace(/!?\[([^\]\n]+)\]\((?!https?:)[^\s)\uE010]+\)/g, (whole, label) => fileLink(whole, label, hold));
   h = h.replace(/(^|[\s(])(https?:\/\/[^\s<]+)/g, (_, pre, url) => {
     // Sentence punctuation after a bare URL isn't part of it, nor is a closing bracket it never opened.
     let tail = url.match(/[.,;:!?]+$/)?.[0] || '';
@@ -37,7 +53,12 @@ export function inline(text) {
   return h.replace(HOLD, (_, k) => held[k]);
 }
 
-export function md(src) {
+export function md(src, { resolveFile: resolver = null } = {}) {
+  const previous = resolveFile; resolveFile = resolver;
+  try { return renderBlocks(src); } finally { resolveFile = previous; }
+}
+
+function renderBlocks(src) {
   const lines = String(src ?? '').replace(/\r\n?/g, '\n').split('\n');
   let i = 0;
   const indent = l => l.match(/^\s*/)[0].replace(/\t/g, '    ').length;

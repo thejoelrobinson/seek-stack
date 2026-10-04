@@ -42,7 +42,8 @@ const items = [
   {id: 'good', type: 1, name: 'Fixture', login: {username: 'dummy@example.test', password: 'dummy-value', uris: [{uri: base + '/login'}]}},
   {id: 'stale', type: 1, name: 'Fixture old', login: {username: 'dummy@example.test', password: 'out-of-date', uris: [{uri: base}]}},
   {id: 'other', type: 1, name: 'Elsewhere', login: {username: 'x', password: 'y', uris: [{uri: 'https://elsewhere.example'}]}},
-  {id: 'note', type: 2, name: 'A secure note'}
+  {id: 'note', type: 2, name: 'A secure note'},
+  {id: 'visa', type: 3, name: 'Everyday Visa', card: {cardholderName: 'Fixture Person', brand: 'Visa', number: '4242 4242 4242 4242', expMonth: '7', expYear: '2029', code: '123'}}
 ];
 const run = async (args, env = {}, input) => {
   calls.push({args, env: Object.keys(env), input});
@@ -64,6 +65,10 @@ const unlocked = await vault.unlock('test-master', 30);
 assert.equal(unlocked.state, 'unlocked');
 assert.equal(calls.filter(c => c.env.includes('BW_PASSWORD')).length, 1, 'the master password only goes to unlock');
 assert.equal(JSON.stringify(vault.items).includes('dummy-value'), false, 'the index keeps no passwords');
+assert.deepEqual(vault.cardList(), [{id: 'visa', name: 'Everyday Visa', brand: 'Visa', last4: '4242', expMonth: '7', expYear: '2029'}]);
+assert.equal(JSON.stringify([vault.cards, unlocked]).includes('4242 4242') || JSON.stringify(vault.cards).includes('123'), false, 'the card index keeps no number or code');
+assert.deepEqual(await vault.cardSecret('visa'), {number: '4242424242424242', code: '123', expMonth: '7', expYear: '2029', cardholderName: 'Fixture Person'});
+await assert.rejects(vault.cardSecret('good'), /not in your vault/);
 assert.deepEqual(vault.matches(base.replace('http://', '')).map(m => m.id).sort(), ['good', 'stale']);
 await assert.rejects(vault.credential('other', '127.0.0.1'), /not for/);
 

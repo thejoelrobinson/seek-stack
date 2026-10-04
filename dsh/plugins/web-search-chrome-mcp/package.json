@@ -1,0 +1,21 @@
+{
+  "name": "@deepseek-ai/dsh-web-search-chrome-mcp",
+  "description": "Local (unpublished) web_search provider for the DeepSeek Harness ctx.web seam: drives a real Chrome browser (raw CDP) through a stdio MCP server at ~/.dsh/chrome-mcp. OFF by default - opt in with DSH_WEB_SEARCH_PROVIDER=chrome-mcp or by editing the 'web' row's searchProvider in ~/.dsh/cordis.patch.yml.",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-web": ">=0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0"
+  }
+}

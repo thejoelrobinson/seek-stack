@@ -41,6 +41,7 @@ export class Vault {
     this.session = null;
     this.until = 0;
     this.items = [];
+    this.cards = [];
     this.state = 'unknown';
     this.lockTimer = null;
   }
@@ -49,7 +50,7 @@ export class Vault {
 
   /** missing | unauthenticated | locked | unlocked | error */
   async status({ fresh = false } = {}) {
-    if (this.unlocked) return { state: 'unlocked', until: this.until, logins: this.items.length };
+    if (this.unlocked) return { state: 'unlocked', until: this.until, logins: this.items.length, cards: this.cardList() };
     if (this.session) this.lock();
     // Spawning the CLI takes ~2s and this only changes on `bw login`/`logout`.
     if (!fresh && this.checkedAt && Date.now() - this.checkedAt < 30000) return { state: this.state };
@@ -74,6 +75,10 @@ export class Vault {
       id: i.id, name: String(i.name || ''), username: String(i.login.username || ''),
       sites: [...new Set((i.login.uris || []).map(u => siteOf(hostOfUri(u.uri))).filter(Boolean))]
     })).filter(i => i.sites.length);
+    // Cards: brand and last four only. Numbers and security codes are dropped here.
+    this.cards = list.filter(i => i.type === 3 && i.card && String(i.card.number || '').replace(/\D/g, '').length >= 12).map(i => ({
+      id: i.id, name: String(i.name || ''), brand: String(i.card.brand || ''), last4: String(i.card.number).replace(/\D/g, '').slice(-4), expMonth: String(i.card.expMonth || ''), expYear: String(i.card.expYear || '')
+    }));
     this.session = key;
     this.until = Date.now() + mins * 60000;
     this.state = 'unlocked';
@@ -87,6 +92,7 @@ export class Vault {
     this.session = null;
     this.until = 0;
     this.items = [];
+    this.cards = [];
     clearTimeout(this.lockTimer);
     if (this.state === 'unlocked') this.state = 'locked';
     this.run(['lock']).catch(() => {});
@@ -112,6 +118,21 @@ export class Vault {
     const entry = { id: created.id, name: site, username: item.login.username, sites: [site] };
     this.items.push(entry);
     return { id: entry.id, name: entry.name, username: entry.username };
+  }
+
+  /** Non-secret card list (brand, last four, expiry) while unlocked. */
+  cardList() {
+    if (!this.unlocked) return [];
+    return this.cards.map(({ id, name, brand, last4, expMonth, expYear }) => ({ id, name, brand, last4, expMonth, expYear }));
+  }
+
+  /** Full card details for one approved fill. The caller types them into the page and wipes them. */
+  async cardSecret(id) {
+    if (!this.unlocked) throw new Error('Your vault is locked. Unlock it in Seek on this PC.');
+    if (!this.cards.some(c => c.id === id)) throw new Error('That card is not in your vault.');
+    const full = JSON.parse(await this.run(['get', 'item', id], { BW_SESSION: this.session }));
+    const c = full.card || {};
+    return { number: String(c.number || '').replace(/\D/g, ''), code: String(c.code || ''), expMonth: String(c.expMonth || ''), expYear: String(c.expYear || ''), cardholderName: String(c.cardholderName || '') };
   }
 
   /** The secret, for one approved fill on a page whose site matches the saved login. */

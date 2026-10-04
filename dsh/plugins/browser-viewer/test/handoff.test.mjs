@@ -31,7 +31,7 @@ const ref = (s, text) => { const el = s.elements.find(e => e.text === text); ass
 const pageText = () => c.cdp.evaluate(c.activeTabId, 'document.querySelector("#r")?.textContent || ""');
 
 try {
-  assert.equal(tools.size, 21);
+  assert.equal(tools.size, 22);
 
   // Login wall: the agent is steered to hand off and can never type a password.
   let s = await call('viewer_navigate', {url: base + '/login'});

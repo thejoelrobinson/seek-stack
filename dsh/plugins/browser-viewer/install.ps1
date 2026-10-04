@@ -12,7 +12,7 @@ if (Test-Path -LiteralPath $destination) {
   Copy-Item -LiteralPath $destination -Destination $backup -Recurse
 }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
-foreach ($item in @('lib','test','package.json','README.md')) {
+foreach ($item in @('lib','skills','test','package.json','README.md')) {
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot $item) -Destination $destination -Recurse -Force
 }
 if (Test-Path -LiteralPath $qwenDestination) {

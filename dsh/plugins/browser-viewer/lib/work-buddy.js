@@ -14,6 +14,8 @@
 // bends, keys and z's travel curved paths, and
 // scripted timing uses CSS-style cubic-bezier easing. CSS swaps the expressions.
 
+import {getModels,modelCharacterState} from '/work/models.js';
+
 export const PALETTES = {
   lavender: { label: 'Lavender', hi: '#fdf8ff', mid: '#cdbcf0', deep: '#8b73c6', cheek: '#ff9dbb', line: '#7560ad' },
   peach: { label: 'Peach', hi: '#fff8f0', mid: '#ffcdb0', deep: '#e98d67', cheek: '#ff8e8e', line: '#c46c4c' },
@@ -25,10 +27,11 @@ export const PALETTES = {
 };
 export const ACCESSORIES = { none: 'Nothing', glasses: 'Glasses', shades: 'Sunglasses', headphones: 'Headphones', bow: 'Bow', beanie: 'Beanie' };
 
-const SIZES = { hero: 164, top: 46, panel: 54, inline: 44, mini: 30, face: 18, brand: 36, preview: 140, id: 84 };
+const SIZES = { hero: 164, top: 46, panel: 54, studio: 64, inline: 44, mini: 30, face: 18, brand: 36, preview: 140, id: 84 };
 const STILL = new Set(['face', 'brand']);
 const WORK = new Set(['type', 'browse', 'think']);
-const GLOBAL_KINDS = new Set(['hero', 'top', 'panel', 'id']);
+const MODEL_WORK = new Set(['tools-away','tools-out','tools-restore','paint','paint-finish']);
+const GLOBAL_KINDS = new Set(['hero', 'top', 'panel', 'studio', 'id']);
 const PREVIEW_TOUR = [['idle', 'Hanging out'], ['type', 'Working on a task'], ['browse', 'Reading a page'], ['wave', 'Needs you'], ['approve', 'Asking to approve'], ['blind', 'Not peeking while you sign in'], ['celebrate', 'All done!'], ['sleep', 'Dozing off']];
 const $$ = s => [...document.querySelectorAll(s)];
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
@@ -64,7 +67,7 @@ const EASE = {
 // A point on a cubic Bézier path, for curved motion.
 const bezierAt = (a, b, c, d, t) => { const u = 1 - t; return [u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0], u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1]]; };
 const SHOULDER = { l: [26.5, 76], r: [93.5, 76] };
-const limbPattern = id => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="120" height="120"><rect width="120" height="120" fill="color-mix(in srgb,var(--b-mid) 35%,white)"/><image href="/work/plush.png" x="-40" y="-40" width="200" height="200" opacity=".94" style="mix-blend-mode:multiply;filter:grayscale(1) contrast(1.7) brightness(.96)"/></pattern>`;
+const limbPattern = id => `<pattern id="${id}" patternUnits="userSpaceOnUse" width="120" height="120"><rect width="120" height="120" fill="color-mix(in srgb,var(--b-mid) 35%,white)"/><image href="/work/plush.webp" x="-40" y="-40" width="200" height="200" opacity=".94" style="mix-blend-mode:multiply;filter:grayscale(1) contrast(1.7) brightness(.96)"/></pattern>`;
 // Rubber-hose arm: a softly irregular plush sleeve and mitten follow one quadratic Bézier.
 function arm(side, u) {
   const [x, y] = SHOULDER[side], hx = x + (side === 'l' ? -4 : 4);
@@ -76,16 +79,17 @@ function rig(kind) {
   return `<svg viewBox="0 0 120 120" aria-hidden="true" focusable="false"><defs>
 <radialGradient id="${u}g" cx="50%" cy="100%" r="85%"><stop offset="0" stop-color="#eaf4ff" stop-opacity=".95"/><stop offset="1" stop-color="#eaf4ff" stop-opacity="0"/></radialGradient>
 <linearGradient id="${u}l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4160"/><stop offset="1" stop-color="#2c2640"/></linearGradient>
-<mask id="${u}plush" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="10" y="14" width="100" height="100" style="mask-type:alpha"><image href="/work/plush.png" x="12" y="16" width="96" height="96"/></mask>
+<mask id="${u}plush" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="10" y="14" width="100" height="100" style="mask-type:alpha"><image href="/work/plush.webp" x="12" y="16" width="96" height="96"/></mask>
 <filter id="${u}limbFur" x="-35%" y="-35%" width="170%" height="170%"><feTurbulence type="fractalNoise" baseFrequency=".13" numOctaves="2" seed="13" result="furNoise"/><feDisplacementMap in="SourceGraphic" in2="furNoise" scale="2.2" xChannelSelector="R" yChannelSelector="G"/><feGaussianBlur stdDeviation=".2"/></filter>
 ${limbPattern(`${u}arm-l`)}${limbPattern(`${u}arm-r`)}${limbPattern(`${u}foot-l`)}${limbPattern(`${u}foot-r`)}
 </defs>
 <ellipse class="b-shadow" cx="60" cy="109" rx="30" ry="4.5"/>
 <g class="b-sparkles">${star(16, 34, 5, 1)}${star(104, 40, 4, 2)}${star(11, 78, 3.5, 3)}${star(109, 84, 4.5, 4)}${star(30, 13, 3.5, 5)}${star(91, 10, 3, 6)}</g>
+<g class="b-easel"><path class="b-easel-legs" d="M88 79L77 111M105 79L117 111M96 82L105 110M77 87H117M96 41V35"/><rect class="b-easel-canvas" x="78" y="42" width="37" height="42" rx="2"/><path class="b-paint-sky" d="M84 57Q94 52 108 57"/><path class="b-paint-hill" d="M83 74Q91 62 98 70Q105 64 110 73"/><circle class="b-paint-sun" cx="104" cy="52" r="3"/></g>
 <g class="b-root">
 <g class="b-feet" filter="url(#${u}limbFur)"><ellipse class="b-foot" cx="45" cy="107.5" rx="9.5" ry="6.2" style="fill:url(#${u}foot-l)"/><ellipse class="b-foot" cx="75" cy="107.5" rx="9.5" ry="6.2" style="fill:url(#${u}foot-r)"/></g>
 <g class="b-sprout"><path class="b-stem" d="M60 28Q60 21 60 15.5"/><g class="b-leaves"><path class="b-leaf" d="M60.5 19C56 12 49 13 47 16C51 20 57 21 60.5 19Z"/><path class="b-leaf" d="M60.8 17.5C64 10 72 9 74 12C71 17 65 19 60.8 17.5Z"/></g></g>
-<g class="b-plush-body"><image class="b-plush-detail" href="/work/plush.png" x="12" y="16" width="96" height="96"/><rect class="b-plush-tint" x="12" y="16" width="96" height="96" fill="color-mix(in srgb,var(--b-mid) 70%,white)" mask="url(#${u}plush)"/></g>
+<g class="b-plush-body"><image class="b-plush-detail" href="/work/plush.webp" x="12" y="16" width="96" height="96"/><rect class="b-plush-tint" x="12" y="16" width="96" height="96" fill="color-mix(in srgb,var(--b-mid) 70%,white)" mask="url(#${u}plush)"/></g>
 <ellipse class="b-glow" cx="60" cy="84" rx="31" ry="17" fill="url(#${u}g)"/>
 <g class="b-face">
 <ellipse class="b-cheek" cx="37.5" cy="75" rx="5.5" ry="3.2"/><ellipse class="b-cheek" cx="82.5" cy="75" rx="5.5" ry="3.2"/>
@@ -108,7 +112,11 @@ ${limbPattern(`${u}arm-l`)}${limbPattern(`${u}arm-r`)}${limbPattern(`${u}foot-l`
 <g class="b-acc b-acc-beanie"><path d="M25 52C25 20 95 20 95 52Z"/><path class="b-rim" d="M23 47C40 42 80 42 97 47L97 55C80 50 40 50 23 55Z"/><circle class="b-pom" cx="60" cy="22" r="7"/></g>
 <g class="b-acc b-acc-bow"><path d="M78 32L70 25L69 37Z"/><path d="M78 32L87 26L87 38Z"/><circle cx="78" cy="32" r="3.2"/></g>
 ${arm('l', u)}${arm('r', u)}
+<g class="b-palette"><ellipse cx="0" cy="0" rx="11" ry="8"/><circle class="b-palette-hole" cx="5" cy="1" r="2.5"/><circle cx="-5" cy="-3" r="2" fill="#b596d0"/><circle cx="0" cy="-4" r="2" fill="#88b79b"/><circle cx="-5" cy="3" r="2" fill="#e4b075"/></g>
+<g class="b-brush"><path class="b-brush-handle" d="M-3 3L9-10"/><path class="b-brush-ferrule" d="M7-8L11-12"/><path class="b-brush-tip" d="M9-13Q9-19 15-18Q17-13 12-10Z"/></g>
+<g class="b-tool"><g class="b-tool-wrench"><path d="M0 10V-5M0-5C-6-5-7-10-4-14L-2-9H2L4-14C7-10 6-5 0-5"/><circle cx="0" cy="8" r="1"/></g><g class="b-tool-brush"><path class="b-brush-handle" d="M0 9V-8"/><path class="b-brush-ferrule" d="M0-6V-11"/><path class="b-brush-tip" d="M-3-11Q-5-18 0-20Q5-18 3-11Z"/></g></g>
 </g>
+<g class="b-toolbox"><g class="b-toolbox-lid"><path d="M58 95V88Q58 86 61 86H97Q100 86 100 88V95Z"/><path class="b-toolbox-handle" d="M72 86V82H86V86"/></g><rect class="b-toolbox-base" x="56" y="94" width="46" height="17" rx="4"/><path class="b-toolbox-seam" d="M57 98H101"/><rect class="b-toolbox-latch" x="76" y="96" width="7" height="6" rx="1.5"/></g>
 <g class="b-laptop"><rect x="35" y="85" width="50" height="22" rx="4" fill="url(#${u}l)"/><g class="b-logo b-logo-sprout"><path d="M60 100V94"/><path d="M60 95.5C57.5 91.5 54 92 53.5 93.5C55.5 95.5 58 96 60 95.5ZM60 94.5C62.5 90.5 66 91 66.5 92.5C64.5 94.5 62 95 60 94.5Z"/></g><g class="b-logo b-logo-globe"><circle cx="60" cy="95.5" r="5"/><path d="M55 95.5H65M60 90.5Q56.8 95.5 60 100.5M60 90.5Q63.2 95.5 60 100.5"/></g><rect class="b-base" x="30" y="105" width="60" height="4.5" rx="2.2"/></g>
 <g class="b-glyphs"><rect class="b-key" x="-3" y="-3" width="6" height="6" rx="1.5"/><rect class="b-key" x="-3" y="-3" width="6" height="6" rx="1.5"/><rect class="b-key" x="-3" y="-3" width="6" height="6" rx="1.5"/><rect class="b-key" x="-3" y="-3" width="6" height="6" rx="1.5"/></g>
 <g class="b-think"><circle cx="89" cy="40" r="2"/><circle cx="95" cy="32" r="3.2"/><ellipse cx="104" cy="17" rx="14" ry="10.5"/><circle class="b-td t1" cx="98" cy="17" r="1.8"/><circle class="b-td t2" cx="104" cy="17" r="1.8"/><circle class="b-td t3" cx="110" cy="17" r="1.8"/></g>
@@ -122,7 +130,7 @@ ${arm('l', u)}${arm('r', u)}
 
 // ── what the agent is doing ──────────────────────────────────────────────────
 const S = {
-  tasks: [], online: true, prev: new Map(), first: true,
+  tasks: [], online: true, models: getModels(), prev: new Map(), first: true,
   oneshot: null, hold: null, lastInput: Date.now(),
   composer: { focus: false, text: '', secret: false },
   global: 'idle', lastSayAt: 0, greeted: false, look: 'lavender', acc: 'none', lookKey: '', favKey: ''
@@ -172,6 +180,8 @@ function computeGlobal() {
   if (control() === 'user') return ['blind', 'Your turn. I’m not looking!'];
   if (S.tasks.some(t => t.handoff)) return ['wave', 'Your turn. I need you in the browser.'];
   if (S.tasks.some(t => t.status === 'waiting')) return ['wave', 'Need you for a sec!'];
+  const modelPose=modelCharacterState(S.models);
+  if(modelPose)return [modelPose];
   if (S.hold && now < S.hold.until) return [S.hold.s];
   if (S.oneshot && now >= S.oneshot.from && now < S.oneshot.until) return [S.oneshot.s, S.oneshot.say];
   if (c.focus && c.text) return ['listen'];
@@ -240,7 +250,10 @@ function apply() {
   for (const el of $$('.buddy[data-mounted]')) {
     const kind = el.dataset.buddy;
     if (STILL.has(kind)) continue;
-    const s = el.dataset.pose || (kind === 'preview' ? tour[0] : el.dataset.task !== undefined ? taskState(S.tasks.find(t => t.id === el.dataset.task)) : GLOBAL_KINDS.has(kind) ? g : 'idle');
+    // A paused question still waves in the header; the studio shows its own
+    // model activity. Browser handoffs and stronger privacy cues stay global.
+    const studioPose = kind === 'studio' && g === 'wave' && !S.tasks.some(t => t.handoff) ? modelCharacterState(S.models) : null;
+    const s = el.dataset.pose || (kind === 'preview' ? tour[0] : el.dataset.task !== undefined ? taskState(S.tasks.find(t => t.id === el.dataset.task)) : studioPose || (GLOBAL_KINDS.has(kind) ? g : 'idle'));
     if (el.dataset.s !== s) { el.dataset.s = s; const I = rigs.get(el); if (I) enter(I, s); }
   }
   keepTalking();
@@ -292,7 +305,7 @@ function favicon(g) {
     : g === 'sleep' ? `<path d="M19 34Q24 39 29 34M35 34Q40 39 45 34" fill="none" stroke="${eye}" stroke-width="3.4" stroke-linecap="round"/>`
     : `<ellipse cx="24" cy="34" rx="3.8" ry="4.8" fill="${eye}"/><ellipse cx="40" cy="34" rx="3.8" ry="4.8" fill="${eye}"/><circle cx="25.4" cy="32" r="1.4" fill="#fff"/><circle cx="41.4" cy="32" r="1.4" fill="#fff"/>`;
   const badge = ['wave', 'approve'].includes(g) ? '<circle cx="50" cy="13" r="11" fill="#ffb547" stroke="#fff" stroke-width="2.5"/><path d="M50 7.5V14.5" stroke="#fff" stroke-width="3.4" stroke-linecap="round"/><circle cx="50" cy="19" r="1.9" fill="#fff"/>'
-    : WORK.has(g) ? '<circle cx="50" cy="13" r="11" fill="#7461b5" stroke="#fff" stroke-width="2.5"/><circle cx="45" cy="13" r="1.9" fill="#fff"/><circle cx="50" cy="13" r="1.9" fill="#fff"/><circle cx="55" cy="13" r="1.9" fill="#fff"/>'
+    : WORK.has(g)||MODEL_WORK.has(g) ? '<circle cx="50" cy="13" r="11" fill="#7461b5" stroke="#fff" stroke-width="2.5"/><circle cx="45" cy="13" r="1.9" fill="#fff"/><circle cx="50" cy="13" r="1.9" fill="#fff"/><circle cx="55" cy="13" r="1.9" fill="#fff"/>'
     : g === 'celebrate' ? '<circle cx="50" cy="13" r="11" fill="#5f9c80" stroke="#fff" stroke-width="2.5"/><path d="M45 13.5L48.5 17L55 10" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
     : g === 'offline' ? '<circle cx="50" cy="13" r="9" fill="#9a95a3" stroke="#fff" stroke-width="2.5"/>' : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><radialGradient id="g" cx="38%" cy="30%" r="80%"><stop offset="0" stop-color="${p.hi}"/><stop offset=".5" stop-color="${p.mid}"/><stop offset="1" stop-color="${p.deep}"/></radialGradient></defs><path d="M32 8C49 8 59 20 59 36C59 52 48 61 32 61C16 61 5 52 5 36C5 20 15 8 32 8Z" fill="url(#g)"/><ellipse cx="18" cy="43" rx="4" ry="2.4" fill="${p.cheek}" opacity=".6"/><ellipse cx="46" cy="43" rx="4" ry="2.4" fill="${p.cheek}" opacity=".6"/>${eyes}${badge}</svg>`;
@@ -310,7 +323,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 // A damped spring: stiffness k, damping ratio z (< 1 overshoots and settles).
 const spring = (x, k, z) => ({ x, v: 0, t: x, k, c: 2 * z * Math.sqrt(k) });
 const stepSpring = (s, dt) => { s.v += (-s.k * (s.x - s.t) - s.c * s.v) * dt; s.x += s.v * dt; };
-const PROPS = { laptop: [60, 107], think: [89, 40], alert: [101, 22], sign: [101, 56], q: [98, 30] };
+const PROPS = { laptop: [60, 107], think: [89, 40], alert: [101, 22], sign: [101, 56], q: [98, 30], toolbox: [79, 111], easel: [97, 111] };
 
 function makeRig(el) {
   const q = s => el.querySelector(s);
@@ -320,7 +333,8 @@ function makeRig(el) {
       root: q('.b-root'), stem: q('.b-stem'), leaves: q('.b-leaves'), face: q('.b-face'), eyes: [...el.querySelectorAll('.b-eye')],
       arms: { l: [...el.querySelectorAll('.b-arm-l path'), q('.b-arm-l .b-hand')], r: [...el.querySelectorAll('.b-arm-r path'), q('.b-arm-r .b-hand')] },
       shadow: q('.b-shadow'), glow: q('.b-glow'), keys: [...el.querySelectorAll('.b-key')], zzz: [...el.querySelectorAll('.b-zzz text')],
-      laptop: q('.b-laptop'), think: q('.b-think'), alert: q('.b-alert'), sign: q('.b-sign'), q: q('.b-q')
+      laptop: q('.b-laptop'), think: q('.b-think'), alert: q('.b-alert'), sign: q('.b-sign'), q: q('.b-q'),
+      toolbox: q('.b-toolbox'), lid: q('.b-toolbox-lid'), tool: q('.b-tool'), easel: q('.b-easel'), brush: q('.b-brush'), palette: q('.b-palette')
     },
     y: 0, vy: 0, air: false, ground: spring(0, 320, .55),
     sq: spring(1, 440, .38), lean: spring(0, 140, .5), bx: spring(0, 55, .6), jig: spring(0, 300, .16),
@@ -331,7 +345,7 @@ function makeRig(el) {
     bL: spring(14, 135, .72), bR: spring(-14, 135, .72),
     wiggle: spring(0, 170, .22),
     pops: Object.fromEntries(Object.keys(PROPS).map(k => [k, spring(0, 330, .42)])),
-    look: null, crouch: null, blinkAt: -1, glow: 0,
+    look: null, crouch: null, blinkAt: -1, glow: 0, toolboxOpen: 0, toolVisible: false, toolKind: 'wrench',
     burst: 0, nextTap: 0, tapLeft: false, keys: [], keyIx: 0,
     col: 0, line: 0, scanX: -2.4, nextSaccade: 0, nextHop: 0, nextFidget: performance.now() + rand(5000, 11000), fidget: null
   };
@@ -394,7 +408,8 @@ function behave(I, now, calm = false) {
   const wave = calm ? () => 0 : (hz, ph = 0) => Math.sin(T * hz * 2 * Math.PI + ph);
   let aL = 14, aR = -14, lL = 1, lR = 1, lean = 1.1 * wave(.09, .5), ground = 0, sq = 1 + .017 * wave(.27) + .005 * wave(.61, 2), fx = 0, fy = 0;
   let sprout = 3 * wave(.16, 1) + 2 * wave(.37), wiggle = 0;
-  const pop = { laptop: 0, think: 0, alert: 0, sign: 0, q: 0 };
+  const pop = { laptop: 0, think: 0, alert: 0, sign: 0, q: 0, toolbox: 0, easel: 0 };
+  I.toolboxOpen=0;I.toolVisible=false;I.toolKind='wrench';
   const look = I.look;
   switch (s) {
     case 'idle': case 'happy':
@@ -406,6 +421,20 @@ function behave(I, now, calm = false) {
     case 'think': fx = 2.6; fy = -2.6; lean = -2.2 + 1.6 * wave(.28); aR = 72; sq = 1 + .012 * wave(.25); pop.think = 1; sprout += 4 * wave(.5); break;
     case 'type': fy = 2.6; aL = -34; aR = 34; lean = .5 * wave(.2); sq = .99; pop.laptop = 1; if (!calm) typing(I, now); break;
     case 'browse': fy = 2.2 + I.line * .8; fx = calm ? 0 : I.scanX; aL = -34; aR = 32; lean = .4 * wave(.15); pop.laptop = 1; if (!calm) reading(I, now); break;
+    case 'tools-away': case 'tools-out': case 'tools-restore': {
+      // One small exchange, then a settled pose while the real load continues.
+      const restore=s==='tools-restore',putting=s==='tools-away'||(restore&&t<1.5),age=restore&&!putting?t-1.5:t;
+      const exchange=EASE.inOut(clamp(age/1.5,0,1));
+      const reach=putting?exchange:1-exchange;
+      aR=-130+160*reach;lR=1.45;fy=1.5;lean=1.2*reach;sq=.99;pop.toolbox=1;
+      I.toolboxOpen=calm?0:Math.sin(Math.PI*clamp(age/1.9,0,1));
+      I.toolVisible=!putting||exchange<.9;
+      I.toolKind=restore&&putting||S.models?.active&&S.models.job?.phase==='loadingImage'?'brush':'wrench';
+      if(calm){aR=s==='tools-away'?30:-130;I.toolVisible=s!=='tools-away';}
+      break;
+    }
+    case 'paint': case 'paint-finish':
+      aL=-30;lL=1.05;aR=s==='paint'?-122+12*wave(.28):-142;lR=1.42;fx=2;fy=.8;lean=.5*wave(.17);sq=1;pop.easel=1;break;
     case 'hello': case 'wave': {
       // An arcing wave: the arm dips first (anticipation), then swings; its spring lags and overshoots each swing.
       const swing = wave(1.8);
@@ -536,7 +565,8 @@ function render(I, now) {
   // Squash and stretch keep the volume: whatever height it gains it loses in width.
   const stretch = I.air ? Math.min(.16, Math.abs(I.vy) / 1000 * .45) : 0;   // longest at speed, round at the top
   const sy = clamp(I.sq.x * (1 + stretch), .72, 1.3), sx = 1 / sy;
-  p.root?.setAttribute('transform', `translate(${f2(60 + I.bx.x)} ${f2(104 + I.y)}) rotate(${f2(I.lean.x)}) scale(${f2(sx)} ${f2(sy)}) translate(-60 -104)`);
+  const painting=['paint','paint-finish'].includes(I.el.dataset.s),size=painting ? .82 : 1;
+  p.root?.setAttribute('transform', `translate(${f2((painting?43:60) + I.bx.x)} ${f2(104 + I.y)}) rotate(${f2(I.lean.x)}) scale(${f2(sx*size)} ${f2(sy*size)}) translate(-60 -104)`);
   const lift = clamp(-I.y / 36, 0, .45);
   p.shadow?.setAttribute('transform', `translate(60 109) scale(${f2((1 - lift) * Math.sqrt(sx))} ${f2(1 - lift)}) translate(-60 -109)`);
   if (p.shadow) p.shadow.style.opacity = f2(.13 * (1 - lift));
@@ -547,6 +577,14 @@ function render(I, now) {
   p.face?.setAttribute('transform', `translate(${f2(I.fx.x)} ${f2(I.fy.x)})`);
   limb(p.arms.l, SHOULDER.l, I.aL.x, I.bL.x + 7, I.lL.x);
   limb(p.arms.r, SHOULDER.r, I.aR.x, I.bR.x - 7, I.lR.x);
+  const leftHand=handPoint(SHOULDER.l,I.aL.x,I.lL.x),rightHand=handPoint(SHOULDER.r,I.aR.x,I.lR.x);
+  for(const [prop,shown,hand,angle] of [[p.tool,I.toolVisible,rightHand,-18],[p.brush,painting,rightHand,0],[p.palette,painting,leftHand,-12]]){
+    if(!prop)continue;
+    prop.toggleAttribute('data-on',!!shown);
+    if(shown)prop.setAttribute('transform',`translate(${f2(hand[0])} ${f2(hand[1])}) rotate(${angle})`);
+  }
+  if(p.tool)p.tool.dataset.kind=I.toolKind;
+  p.lid?.setAttribute('transform',`rotate(${f2(-18*I.toolboxOpen)} 58 94)`);
   // Blink: shut fast, open a little slower.
   let e = 1;
   if (I.blinkAt >= 0) {
@@ -586,6 +624,7 @@ function render(I, now) {
 }
 
 // Draw one arm: shoulder -> hand along the arm's angle; the control point follows the slower bend angle.
+function handPoint([x,y],angle,len){const a=angle*Math.PI/180,L=16*len;return [x-L*Math.sin(a),y+L*Math.cos(a)];}
 function limb([edge, fill, hand], [x, y], angle, bendAngle, len) {
   if (!edge) return;
   const L = 16 * len, a = angle * Math.PI / 180, b = bendAngle * Math.PI / 180;
@@ -630,6 +669,7 @@ const io = 'IntersectionObserver' in window ? new IntersectionObserver(entries =
   loop();
 }) : null;
 document.addEventListener('visibilitychange', () => { lastFrame = 0; loop(); });
+reduced.addEventListener('change',()=>{for(const I of rigs.values())I.calmKey=null;lastFrame=0;loop();});
 
 // ── mounting ─────────────────────────────────────────────────────────────────
 function mount(el) {
@@ -728,6 +768,7 @@ document.addEventListener('click', e => {
 /** A little hop, e.g. when you change its look. */
 export function cheer(el) { const I = el && rigs.get(el); if (I) poke(I); if (el) flash(el, 'bd-poke', 900); }
 
+window.addEventListener('seek-model-state',event=>{S.models=event.detail;apply();});
 mountAll(document);
 setLook(null);
 apply();

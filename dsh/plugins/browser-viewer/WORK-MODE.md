@@ -26,6 +26,20 @@ session is running. This prevents two agents from changing the same browser page
 **Pause**, **Resume** and **Stop** are actual backend controls. Browser **Take over**
 pauses the current Work task; **Resume agent** continues it.
 
+## Reusable skills
+
+Keep general harness instructions short because they are supplied to every Work
+conversation. Put domain workflows in `skills/<name>/SKILL.md` and inject them only
+when the task matches. The Walmart purchase audit playbook is conditionally loaded
+for purchase, order, invoice, receipt, spend, or item requests about Walmart. It
+uses `viewer_receipts` as an order-page extractor today and clearly marks that
+Print invoice PDFs are not yet handled by that tool.
+
+Improve a skill from reproducible failures: save a sanitized feedback record,
+identify the root cause, propose a narrow edit, and replay a redacted or synthetic
+case before retaining the change. Dreaming can remember user corrections, but it
+does not edit skills or application code automatically.
+
 ## Files, memory and schedules
 
 - Attach up to five files (8 MB each) to a new task. Files are copied into its workspace.
@@ -127,6 +141,29 @@ The computer must remain awake and the harness must be running. This implementat
 does not provide Muse's hosted infrastructure or its proprietary model.
 
 ## Checks
+
+Run `npm ci` then `npm test` for the complete isolated regression suite, including
+Work engine, model queue/results, purchases, receipt batches, push/password guards,
+image service, durable delivery, recovery, caching and headless desktop/mobile UI.
+It requires installed Chrome, but does not call a real model or external service.
+Pinned dependencies and the Windows CI workflow make the same checks reproducible.
+`npm run test:browser` adds the browser, handoff, approval, fast-lane and receipt
+integration fixtures. `npm run test:live` is the separate real-model suite; use an
+isolated harness, task store and browser profile on port 3081.
+
+Work 0.4 uses durable acknowledged message delivery, persistent request IDs,
+per-conversation drafts, compact revision updates with SSE and polling recovery,
+40-message detail pages, task search/archive, lazy feature loading, bounded Finance
+transaction pages, compressed versioned assets and validated recovery backups.
+Uncertain sends require verification or an explicit Retry message action.
+Human-only waiting tasks release the queue; browser handoffs and approvals retain
+exclusive ownership. Request deadlines are 15 seconds per attempt (reads may retry
+once); Finance setup/refresh uses 60 seconds, and image generation 15 minutes.
+`/work/api/version` identifies the running plugin/assets and proxy. Local
+`/work/api/diagnostics` reports endpoint failures, queue/first-reply timing, pending
+delivery and recovery health without copying message contents. Both use the same
+authentication and origin protection as the other Work routes. Backups are
+`work.json.bak`; damaged originals are retained as `work.json.corrupt-*`.
 
 - `node test/work-engine.test.mjs`: durable recovery, quick reply ordering,
   final-state reconciliation, approval replies, upload validation and file boundaries.

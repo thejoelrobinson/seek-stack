@@ -25,6 +25,7 @@ try{
   const image=await service.generate({prompt:'A tiny friendly robot, watercolor.',ratio:'portrait',steps:30});
   assert.equal(image.width,896);assert.equal(image.height,1152);assert.equal(qwen,'loaded','the language model is restored after generation');assert.equal(runnerLoaded,false,'runner releases image VRAM');
   assert.equal(service.history().items.length,1);assert.match(service.file(image.id),/\.png$/);
+  let favorites=await service.favorite(image.id,true);assert.ok(favorites.items[0].favoriteAt,'favorites persist on the gallery record');favorites=await service.favorite(image.id,false);assert.equal(favorites.items[0].favoriteAt,undefined);await assert.rejects(service.favorite('missing',true),/Image not found/);
   await service.remove(image.id);assert.equal(service.history().items.length,0);
   console.log('PASS: image generation validates input, hands off GPU ownership, stores an image, and restores the coding model.');
 }finally{globalThis.fetch=original;}

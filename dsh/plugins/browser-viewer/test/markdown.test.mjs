@@ -1,3 +1,4 @@
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import { md, inline, mdPage, CARET } from '../lib/work-markdown.js';
 
@@ -41,3 +42,23 @@ const page = mdPage('# Plan\n- go', 'plan.md');
 assert.ok(page.startsWith('<!doctype html>') && page.includes('<h1>Plan</h1>') && page.includes('<title>plan.md</title>'));
 
 console.log('PASS: markdown inline/blocks/lists/tables/code, escaping, caret, preview page');
+
+test('task-local file links resolve only through the supplied artifact resolver',()=>{
+  const files={'report.md':{url:'/work/api/artifact?task=t&id=a',preview:'/work/api/artifact?task=t&id=a&preview=1'},'chart.png':{url:'/work/api/artifact?task=t&id=c'}};
+  const resolveFile=path=>files[path.replace(/^\.\//,'')]||null;
+  const html=md('Read [the report](./report.md), see ![Chart](chart.png), skip [secret](../x.md).',{resolveFile});
+  assert.match(html,/<a class="md-file" href="\/work\/api\/artifact\?task=t&amp;id=a&amp;preview=1"[^>]*>the report<\/a>/);
+  assert.match(html,/<img src="\/work\/api\/artifact\?task=t&amp;id=c" alt="Chart"/);
+  assert.match(html,/skip secret\./,'unresolved links stay plain text');
+  assert.doesNotMatch(md('[the report](report.md)'),/<a /,'no resolver keeps the old plain-text behavior');
+  assert.doesNotMatch(md('![a" onerror="x](chart.png)',{resolveFile}),/onerror="/,'alt text stays escaped');
+  assert.match(md('![photo](notes.md)',{resolveFile:()=>({url:'/u'})}),/<a class="md-file"/,'non-image files never render as <img>');
+});
+
+test('code spans naming a recorded artifact link to it; other code stays code',()=>{
+  const resolveFile=path=>path==='weekend/plan.md'?{url:'/u?a=1&b=2',preview:'/p?a=1&b=2'}:null;
+  const html=md('Saved `weekend/plan.md` and `npm test` and `other.md`.',{resolveFile});
+  assert.match(html,/<a class="md-file" href="\/p\?a=1&amp;b=2"[^>]*><code>weekend\/plan\.md<\/code><\/a>/);
+  assert.match(html,/<code>npm test<\/code>/);assert.match(html,/<code>other\.md<\/code>/);assert.equal((html.match(/<a /g)||[]).length,1);
+  assert.equal(md('`weekend/plan.md`'),'<p><code>weekend/plan.md</code></p>');
+});

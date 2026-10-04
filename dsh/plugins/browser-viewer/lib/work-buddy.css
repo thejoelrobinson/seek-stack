@@ -44,7 +44,20 @@
 .buddy .b-acc-bow path,.buddy .b-acc-bow circle{fill:#ff7aa2}
 
 /* props the rig pops in and out (data-on while shown); a hidden ancestor still hides them */
-.buddy :is(.b-laptop,.b-think,.b-alert,.b-sign,.b-q,.b-key):not([data-on]){visibility:hidden}
+.buddy :is(.b-laptop,.b-think,.b-alert,.b-sign,.b-q,.b-key,.b-toolbox,.b-tool,.b-easel,.b-brush,.b-palette):not([data-on]){visibility:hidden}
+.b-toolbox-lid,.b-toolbox-base{fill:#d6c8b8;stroke:#a99580;stroke-width:1.3}
+.b-toolbox-handle{fill:none;stroke:#a99580;stroke-width:2;stroke-linejoin:round}
+.b-toolbox-seam{stroke:#b39e88;stroke-width:1}.b-toolbox-latch{fill:#f4e5cc;stroke:#ae967d;stroke-width:1}
+.b-tool-wrench{fill:none;stroke:#a1a9b2;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.b-tool[data-kind=brush] .b-tool-wrench,.b-tool:not([data-kind=brush]) .b-tool-brush{display:none}
+.b-brush-handle{fill:none;stroke:#bb9871;stroke-width:3;stroke-linecap:round}
+.b-brush-ferrule{fill:none;stroke:#c5cbd3;stroke-width:4;stroke-linecap:butt}
+.b-brush-tip{fill:#9678b9;stroke:#80659e;stroke-width:1}
+.b-palette>ellipse{fill:#f0ddba;stroke:#c8ad83;stroke-width:1.3}.b-palette-hole{fill:var(--b-mid)}
+.b-easel-legs{fill:none;stroke:#c5a887;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.b-easel-canvas{fill:#fffdf7;stroke:#d7c9b9;stroke-width:1.5}
+.b-paint-sky{fill:none;stroke:#c6b4df;stroke-width:3;stroke-linecap:round}
+.b-paint-hill{fill:none;stroke:#9bb9a4;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}.b-paint-sun{fill:#e7c18f}
 
 /* expressions, swapped by state (the rig blinks as they change, which hides the swap) */
 .buddy .b-eyes-happy,.buddy .b-eyes-closed,.buddy .b-brows,.buddy .b-m,.buddy .b-acc,.buddy .b-sweat,.buddy .b-zzz,.buddy .b-heart,.buddy .b-sparkles,.buddy .b-logo{display:none}

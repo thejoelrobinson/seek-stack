@@ -1,0 +1,38 @@
+name: Seek Work regressions
+on:
+  push:
+    paths: ['dsh/plugins/browser-viewer/**', 'dsh/plugins/qwen-image/**', 'dsh/tools/*qwen_image*', 'dsh/tools/qwen-image-service.py', 'dsh/proxy/**', 'scheduled-task/**', 'start-seek.ps1', '.github/workflows/work-regressions.yml']
+  pull_request:
+    paths: ['dsh/plugins/browser-viewer/**', 'dsh/plugins/qwen-image/**', 'dsh/tools/*qwen_image*', 'dsh/tools/qwen-image-service.py', 'dsh/proxy/**', 'scheduled-task/**', 'start-seek.ps1', '.github/workflows/work-regressions.yml']
+jobs:
+  work:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: dsh/plugins/browser-viewer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dsh/plugins/browser-viewer/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:browser
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s dsh/tools -p 'test_qwen_image*.py'
+        working-directory: .
+      - name: Check operational PowerShell syntax
+        shell: pwsh
+        working-directory: .
+        run: |
+          $files = @('start-seek.ps1') + @(Get-ChildItem scheduled-task -File -Filter '*.ps1' | ForEach-Object FullName)
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw "PowerShell parse failed: $file" }
+          }

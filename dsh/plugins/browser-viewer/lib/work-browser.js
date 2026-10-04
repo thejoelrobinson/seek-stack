@@ -1,6 +1,7 @@
 // Seek's browser inside the Work conversation, modelled on Muse's handoff:
 // watch live, take control (the agent pauses and can't see the page), hand back
 // (the agent resumes by itself). Works with mouse, keyboard and touch.
+import {trapModal,approvalDetails,approvalAttributes} from '/work/product.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = n => `<svg class="ic" aria-hidden="true" focusable="false"><use href="#i-${n}"/></svg>`;
@@ -18,7 +19,7 @@ async function api(body) {
 function toast(message) { const t = $('#toast'); if (!t) return; t.textContent = message; t.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, 5000); }
 function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
 
-let pendingControl = false;
+let pendingControl = false,releaseFocus=null;
 function takeControl() { if (ws && ws.readyState === 1) send({type:'pause', paused:true}); else pendingControl = true; }
 async function handBack() {
   try {
@@ -27,10 +28,11 @@ async function handBack() {
     toast(`Handed back. ${agentName} is picking up where you left off.`);
   } catch (e) { toast(e.message); }
 }
-async function decide(decision, scope) {
+async function decide(decision, scope,button) {
   try {
-    if (task?.approval) await api({id:task.id, action:decision, scope});
-    else send({type:decision, scope});
+    const review=button?.closest('[data-proposal-id]'),binding={proposalId:review?.dataset.proposalId||undefined,fingerprint:review?.dataset.fingerprint||undefined};
+    if (task?.approval) await api({id:task.id, action:decision, scope,...binding});
+    else send({type:decision, scope,...binding});
   } catch (e) { toast(e.message); }
 }
 
@@ -143,7 +145,7 @@ function renderSheet() {
   // Rebuild only on change: status arrives several times a second and a rebuild mid-click loses the click.
   const setBanner = (cls, html) => { if (banner.dataset.sig !== cls + html) { banner.className = 'bv-banner ' + cls; banner.innerHTML = html; banner.dataset.sig = cls + html; mountVault(); } banner.hidden = false; };
   if (approval) {
-    setBanner('approve', `<div><strong>Approve this?</strong> ${esc(agentName)} wants to press “${esc(approval.label)}” on ${esc(approval.host)}. This can’t easily be undone.</div><div class="bv-banner-actions"><button class="primary" data-bv="approve-once">Approve once</button><button data-bv="approve-task">For this task</button><button data-bv="approve-always">Always on this site</button><button data-bv="reject">Reject</button></div>`);
+    setBanner('approve', `<div><strong>Approve this?</strong> ${esc(agentName)} wants to press “${esc(approval.label)}” on ${esc(approval.host)}. This can’t easily be undone.</div>${approvalDetails(approval)}<div class="bv-banner-actions" ${approvalAttributes(approval)}><button class="primary" data-bv="approve-once">Approve once</button><details class="approval-scopes"><summary>More approval options</summary><button data-bv="approve-task">For this task</button><button data-bv="approve-always">Always this action</button><p>This exact action can be reused. Changed content or recipients require a new review.</p></details><button data-bv="reject">Reject</button></div>`);
   } else if (user) {
     setBanner('you', `<div>${handoff ? `<strong>Your turn.</strong> ${esc(handoff.message)} ` : ''}${esc(agentName)} is paused and can’t see the page while you’re in control. Passwords you type here never reach the agent.</div>${task?.handoff?.reason === 'login' ? `<div class="bv-vault" data-bv-vault="${esc(task.id)}"></div>` : ''}`);
   } else { banner.hidden = true; banner.dataset.sig = ''; }
@@ -161,7 +163,7 @@ function card(t) {
   if (!t || !(t.usesBrowser || t.handoff || t.approval)) return '';
   const thumb = `<button class="bv-thumb" data-bv="open" aria-label="Open the browser"><canvas data-bv-thumb></canvas><span class="bv-live">${t.status === 'running' ? 'LIVE' : 'VIEW'}</span><span class="bv-mini-batch" data-bv-batch hidden>${[0,1,2,3].map(i => `<img data-slot="${i}" alt="">`).join('')}</span></button>`;
   if (t.handoff) return `<section class="bv-card turn">${thumb}<div class="bv-card-body"><div class="bv-kicker"><span class="buddy" data-buddy="mini" data-task="${esc(t.id)}"></span>YOUR TURN</div><p class="bv-say">${esc(t.handoff.message)}</p><p class="bv-meta">${esc(hostOf(t.handoff.url) || 'Browser')} · ${esc(agentName)} is paused and can’t see the page while you’re in control.</p>${t.handoff.reason === 'login' ? `<div class="bv-vault" data-bv-vault="${esc(t.id)}"></div>` : ''}<div class="bv-actions"><button class="primary" data-bv="control">Take control</button><button data-bv="handback">I’m done, hand back</button></div></div></section>`;
-  if (t.approval) return `<section class="bv-card approve">${thumb}<div class="bv-card-body"><div class="bv-kicker"><span class="buddy" data-buddy="mini" data-task="${esc(t.id)}"></span>APPROVE THIS?</div><p class="bv-say">Press “${esc(t.approval.label)}” on ${esc(t.approval.host)}?</p><p class="bv-meta">${esc(t.approval.title || t.approval.url)} · This can’t easily be undone.</p><div class="bv-actions"><button class="primary" data-bv="approve-once">Approve once</button><button data-bv="approve-task">For this task</button><button data-bv="approve-always">Always on this site</button><button data-bv="reject">Reject</button><button class="bv-link" data-bv="open">Look at the page</button></div></div></section>`;
+  if (t.approval) return `<section class="bv-card approve">${thumb}<div class="bv-card-body"><div class="bv-kicker"><span class="buddy" data-buddy="mini" data-task="${esc(t.id)}"></span>APPROVE THIS?</div><p class="bv-say">Press “${esc(t.approval.label)}” on ${esc(t.approval.host)}?</p><p class="bv-meta">${esc(t.approval.title || t.approval.url)} · This can’t easily be undone.</p>${approvalDetails(t.approval)}<div class="bv-actions" ${approvalAttributes(t.approval)}><button class="primary" data-bv="approve-once">Approve once</button><details class="approval-scopes"><summary>More approval options</summary><button data-bv="approve-task">For this task</button><button data-bv="approve-always">Always this action</button><p>This exact action can be reused. Changed content or recipients require a new review.</p></details><button data-bv="reject">Reject</button><button class="bv-link" data-bv="open">Look at the page</button></div></div></section>`;
   const live = t.status === 'running';
   return `<section class="bv-card">${thumb}<div class="bv-card-body"><div class="bv-kicker">${live ? 'IN THE BROWSER' : 'BROWSER'}</div><p class="bv-say" data-bv-live="doing">${esc(live ? doing() : 'Open the browser to see where things were left.')}</p><p class="bv-meta" data-bv-live="where">${esc(where())}</p><div class="bv-actions"><button data-bv="open">Open browser</button>${live ? '<button data-bv="control">Take control</button>' : ''}</div></div></section>`;
 }
@@ -232,12 +234,15 @@ function build() {
 }
 function open({control = false} = {}) {
   const sheet = $('#bv-sheet');
+  const wasHidden=sheet.hidden;
   sheet.hidden = false; document.body.classList.add('bv-open');
+  const shell=sheet.querySelector('.bv-shell'),modal=!matchMedia('(min-width:1200px)').matches;shell.setAttribute('role',modal?'dialog':'region');if(modal)shell.setAttribute('aria-modal','true');else shell.removeAttribute('aria-modal');
+  if(wasHidden&&modal)releaseFocus=trapModal(sheet,{onClose:close});
   sync(); renderSheet(); paint();
   if (control && status.control !== 'user') takeControl();
   setTimeout(() => $('#bv-canvas').focus({preventScroll:true}), 50);
 }
-function close() { $('#bv-sheet').hidden = true; document.body.classList.remove('bv-open'); sync(); }
+function close() { $('#bv-sheet').hidden = true; document.body.classList.remove('bv-open');releaseFocus?.();releaseFocus=null;sync(); }
 
 // ── input: mouse, touch (tap = click, drag = scroll), keyboard ──────────────
 const VK = {Backspace:8, Tab:9, Enter:13, Escape:27, ArrowLeft:37, ArrowUp:38, ArrowRight:39, ArrowDown:40, Delete:46};
@@ -336,15 +341,16 @@ document.addEventListener('click', e => {
   else if (a === 'close') close();
   else if (a === 'control') open({control:true});
   else if (a === 'handback') handBack();
-  else if (a === 'approve-once') decide('approve', 'once');
-  else if (a === 'approve-task') decide('approve', 'task');
-  else if (a === 'approve-always') decide('approve', 'always');
-  else if (a === 'reject') decide('reject', 'once');
+  else if (a === 'approve-once') decide('approve', 'once',b);
+  else if (a === 'approve-task') decide('approve', 'task',b);
+  else if (a === 'approve-always') decide('approve', 'always',b);
+  else if (a === 'reject') decide('reject', 'once',b);
   else if (a === 'secure-toggle') { const f = b.closest('.bv-vault')?.querySelector('.bv-secure'); if (f) { f.hidden = !f.hidden; if (!f.hidden) f.elements.username.focus(); } }
   else if (a === 'vaultfill') { b.disabled = true; vaultFill(b.dataset.item).finally(() => { b.disabled = false; }); }
   else if (['back', 'forward', 'reload'].includes(a)) send({type:a});
 });
 document.addEventListener('visibilitychange', sync);
+window.addEventListener('resize',()=>{const sheet=$('#bv-sheet');if(!sheet||sheet.hidden)return;const modal=!matchMedia('(min-width:1200px)').matches,shell=sheet.querySelector('.bv-shell');shell.setAttribute('role',modal?'dialog':'region');if(modal){shell.setAttribute('aria-modal','true');if(!releaseFocus)releaseFocus=trapModal(sheet,{returnTo:$('#watch-browser'),onClose:close});}else{shell.removeAttribute('aria-modal');releaseFocus?.();releaseFocus=null;}});
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#bv-sheet').hidden && document.activeElement?.tagName !== 'INPUT') close(); });
 
 build();

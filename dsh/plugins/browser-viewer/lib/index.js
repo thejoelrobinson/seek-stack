@@ -17,6 +17,7 @@
  * the dsh-web-search-chrome-mcp precedent).
  */
 import { WebSocketServer } from "ws";
+import {assertApprovalBinding} from './work-approval-binding.js';
 import { buildTools } from "./agent-tools.js";
 import { SNAPSHOT_JS, targetScript, safeUrl, LOGIN_PROBE_JS, loginPoint } from "./page.js";
 import { Vault, siteOf } from "./vault.js";
@@ -28,6 +29,7 @@ import { randomUUID } from "node:crypto";
 import { CdpBrowser } from "./cdp.js";
 import { publicBatch } from "./fastlane.js";
 import { mountWork } from "./work-server.js";
+import {isTrustedApiRequest as sharedRequestFence} from './work-request-fence.js';
 
 /** Stable Cordis plugin name. */
 const name = "browser-viewer";
@@ -35,7 +37,7 @@ const name = "browser-viewer";
  * Wait for the web server, tool registry and system prompt before mounting.
  * webRuntime supplies the deployment's trusted hosts when available.
  */
-const inject = ["webServer", "tools", "systemPrompt", "apiProxy", "agents"];
+const inject = ["webServer", "tools", "systemPrompt", "sessionController", "agents"];
 
 const STREAM_PATH = "/browser/stream";
 const SHOTS_DIR = join(homedir(), ".dsh", "browser", "shots");
@@ -93,19 +95,7 @@ function isTrustedAuthority(hostUrl, trustedHosts) {
   });
 }
 function isTrustedApiRequest(request, trustedHosts) {
-  const host = header(request.headers, "host");
-  if (host === void 0) return false;
-  const hostUrl = parseAuthority(host);
-  if (hostUrl === void 0) return false;
-  if (!isLoopbackHostname(hostUrl.hostname) && !isTrustedAuthority(hostUrl, trustedHosts)) return false;
-  if (header(request.headers, "sec-fetch-site") === "cross-site") return false;
-  const origin = header(request.headers, "origin");
-  if (origin === void 0) return true;
-  try {
-    return new URL(origin).host === hostUrl.host;
-  } catch {
-    return false;
-  }
+  return sharedRequestFence(request,trustedHosts);
 }
 function rejectWebSocketUpgrade(socket) {
   socket.end([
@@ -146,6 +136,9 @@ class BrowserController {
     this.approval = null;
     this.grants = [];
     this.alwaysAllow = []; // replaced by the Work engine's persisted list
+    this.authority=opts.authority||null;
+    this.authorizationForSession=opts.authorizationForSession||null;
+    this.sessionTabs=new Map();this.tabOwners=new Map();this.agentOwner=null;
 
     this.lastAgentActionAt = 0;
     this.agentActive = () => false;
@@ -313,25 +306,29 @@ class BrowserController {
   }
   /** `approval` may be a stale copy (e.g. from a task saved before a restart). */
   /**
-   * Scopes, as in Muse: once (this action), task (similar actions on this site
-   * for this task), always (this exact action on this site, in every task, until
-   * revoked; persisted by the Work engine through `alwaysAllow`).
+   * Grants bind the exact proposal. Task/always scopes never authorize a
+   * materially changed recipient, body, amount, endpoint or page state.
    */
   async decide(approval, decision, scope = 'once') {
     if (!approval) throw new Error('No approval is pending.');
     if (scope === 'site') scope = 'task';
     if (!['once', 'task', 'always'].includes(scope)) scope = 'once';
+    // Card payments are approved one at a time, whatever scope the UI sends.
+    if (approval.intent?.kind === 'browser.card' || approval.action === 'pay') scope = 'once';
     if (this.approval?.id === approval.id) this.approval = null;
     if (decision === 'approve') {
-      if (scope === 'always' && !this.alwaysAllow.some(a => a.host === approval.host && a.label === approval.label)) this.alwaysAllow.push({ host: approval.host, label: approval.label, at: Date.now() });
-      this.grants.push({ sessionId: approval.sessionId, host: approval.host, label: approval.label, scope: scope === 'always' ? 'once' : scope });
+      if(approval.proposalId&&this.authority)await this.authority.grant(approval.proposalId,{scope});
+      if (scope === 'always' && !this.alwaysAllow.some(a => a.host === approval.host && a.label === approval.label&&a.fingerprint===approval.fingerprint)) this.alwaysAllow.push({ host: approval.host, label: approval.label, fingerprint:approval.fingerprint, at: Date.now() });
+      if(!approval.proposalId||!this.authority)this.grants.push({ sessionId: approval.sessionId, host: approval.host, label: approval.label, fingerprint:approval.fingerprint, scope: scope === 'always' ? 'once' : scope });
     }
+    else if(approval.proposalId&&this.authority)await this.authority.reject(approval.proposalId);
     this.sendStatus();
     await this.onDecision?.(approval, decision, scope);
   }
-  consumeGrant(sessionId, host, label) {
-    if (this.alwaysAllow.some(a => a.host === host && a.label === label)) return true;
-    const i = this.grants.findIndex(g => g.sessionId === sessionId && g.host === host && (g.scope === 'task' || g.label === label));
+  consumeGrant(sessionId, host, label, fingerprint) {
+    const persistent=this.alwaysAllow.find(a=>a.host===host&&a.label===label&&(!fingerprint||!a.fingerprint||a.fingerprint===fingerprint));
+    if(persistent){if(fingerprint&&!persistent.fingerprint)persistent.fingerprint=fingerprint;return true;}
+    const i = this.grants.findIndex(g => g.sessionId === sessionId && g.host === host && (fingerprint?g.fingerprint===fingerprint||!g.fingerprint&&g.label===label:g.scope === 'task' || g.label === label));
     if (i < 0) return false;
     if (this.grants[i].scope === 'once') this.grants.splice(i, 1);
     return true;
@@ -340,6 +337,22 @@ class BrowserController {
   get running() {
     return this.cdp !== null && this.cdp.alive;
   }
+  async useSession(sessionId){
+    if(!sessionId)return;
+    let owner=sessionId;try{owner=(await this.authorizationForSession?.(sessionId))?.taskId||sessionId;}catch{}
+    this.agentOwner=owner;
+    if(!this.running)return;
+    const tabs=await this.cdp.listTabs(),ids=new Set(tabs.map(t=>t.id));
+    for(const [tab] of this.tabOwners)if(!ids.has(tab))this.tabOwners.delete(tab);
+    const saved=this.sessionTabs.get(owner);
+    if(saved&&ids.has(saved)){this.activeTabId=saved;await this.cdp.attachTab(saved);return;}
+    if(this.activeTabId&&ids.has(this.activeTabId)&&!this.tabOwners.has(this.activeTabId)){this.tabOwners.set(this.activeTabId,owner);this.sessionTabs.set(owner,this.activeTabId);return;}
+    this.activeTabId=await this.cdp.newTab('about:blank');this.tabOwners.set(this.activeTabId,owner);this.sessionTabs.set(owner,this.activeTabId);
+  }
+  rememberSessionTab(){if(this.agentOwner&&this.activeTabId){this.tabOwners.set(this.activeTabId,this.agentOwner);this.sessionTabs.set(this.agentOwner,this.activeTabId);}}
+  releaseSession(){this.rememberSessionTab();this.agentOwner=null;}
+  async releaseTaskBrowser(taskId,{close=false}={}){for(const [tab,owner] of this.tabOwners)if(owner===taskId){if(close){if(this.running)await this.cdp.closeTab(tab);this.tabOwners.delete(tab);}else this.tabOwners.set(tab,'retired:'+taskId);}this.sessionTabs.delete(taskId);}
+  async agentStatus(sessionId){let owner=sessionId;try{owner=(await this.authorizationForSession?.(sessionId))?.taskId||sessionId;}catch{}const status=this.statusNow(),ownActive=this.tabOwners.get(this.activeTabId)===owner;return {...status,tabs:(status.tabs||[]).filter(tab=>this.tabOwners.get(tab.id)===owner),url:ownActive&&!this.paused?status.url:'',title:ownActive&&!this.paused?status.title:'',activeTabId:ownActive?status.activeTabId:null,handoff:this.handoff?.sessionId===sessionId?status.handoff:null,approval:this.approval?.sessionId===sessionId?status.approval:null,batch:ownActive&&!this.paused?status.batch:null};}
 
   /** Single-flight lazy launch; re-launches if the previous instance died. */
   async ensureBrowser() {
@@ -400,6 +413,7 @@ class BrowserController {
     return { running: true, url: (await this._currentUrl()) ?? "" };
   }
   async stop() {
+    if(this.agentOwner&&this.running){const owned=[...this.tabOwners].filter(([,owner])=>owner===this.agentOwner).map(([tab])=>tab);const others=(await this.cdp.listTabs()).filter(tab=>!owned.includes(tab.id));if(others.length){for(const tab of owned){await this.cdp.closeTab(tab);this.tabOwners.delete(tab);}this.sessionTabs.delete(this.agentOwner);this.activeTabId=null;this.status={...this.status,url:null,title:null};this.sendStatus();return {running:true,closedTaskTabs:true};}}
     this.stopStreaming();
     if (this.activeTabId && this.cdp && this.cdp.alive) {
       try {
@@ -407,6 +421,7 @@ class BrowserController {
       } catch {}
     }
     this.activeTabId = null;
+    this.sessionTabs.clear();this.tabOwners.clear();
     if (this.cdp) {
       try {
         await this.cdp.close();
@@ -428,6 +443,7 @@ class BrowserController {
     } else {
       await cdp.navigate(this.activeTabId, url);
     }
+    this.rememberSessionTab();
     this.status.error = null;
     await this._refreshStatus();
     this.startStreaming();
@@ -576,7 +592,9 @@ class BrowserController {
     return {ok:true};
   }
   async listTabs() {
-    return {tabs:this.running ? (await this.cdp.listTabs()).map(t => ({...t,active:t.id === this.activeTabId})) : []};
+    if(!this.running)return {tabs:[]};
+    if(this.agentOwner){const {targetInfos}=await this.cdp.send('Target.getTargets');for(const target of targetInfos||[])if(target.type==='page'&&target.openerId&&this.tabOwners.get(target.openerId)===this.agentOwner)this.tabOwners.set(target.targetId,this.agentOwner);}
+    return {tabs:(await this.cdp.listTabs()).filter(t=>!this.agentOwner||this.tabOwners.get(t.id)===this.agentOwner).map(t=>({...t,active:t.id===this.activeTabId}))};
   }
   async tab({action,tabId,url}) {
     if (!['open','switch','close'].includes(action)) throw new Error('Invalid tab action.');
@@ -584,15 +602,18 @@ class BrowserController {
       const target = safeUrl(url || 'about:blank');
       await this.ensureBrowser();
       this.activeTabId = await this.cdp.newTab(target);
+      this.rememberSessionTab();
     } else {
       const tabs = (await this.listTabs()).tabs;
       if (!tabs.some(t => t.id === tabId)) throw new Error('Unknown tab. Call viewer_tabs.');
       if (action === 'switch') { await this.cdp.attachTab(tabId); this.activeTabId = tabId; }
       else {
         await this.cdp.closeTab(tabId);
+        this.tabOwners.delete(tabId);
         if (this.activeTabId === tabId) {
           this.activeTabId = tabs.find(t => t.id !== tabId)?.id || await this.cdp.newTab('about:blank');
           await this.cdp.attachTab(this.activeTabId);
+          this.rememberSessionTab();
         }
       }
     }
@@ -643,7 +664,7 @@ class BrowserController {
       control: this.paused ? "user" : this.userMayDrive() ? "idle" : "agent",
       viewport: this.viewportMode,
       handoff: this.handoff ? { reason: this.handoff.reason, message: this.handoff.message } : null,
-      approval: this.approval ? { id: this.approval.id, label: this.approval.label, host: this.approval.host, url: this.approval.url, title: this.approval.title } : null,
+      approval: this.approval ? { id: this.approval.id, proposalId: this.approval.proposalId, fingerprint: this.approval.fingerprint, label: this.approval.label, host: this.approval.host, url: this.approval.url, title: this.approval.title } : null,
       batch: publicBatch(this.batch)
     };
   }
@@ -659,7 +680,7 @@ class BrowserController {
       // Control changes bypass the action queue so they never wait behind an agent action.
       const control = msg.type === "pause" ? (msg.paused ? () => this.takeControl() : () => this.handBack(msg.note))
         : msg.type === "handback" ? () => this.handBack(msg.note)
-        : msg.type === "approve" || msg.type === "reject" ? () => this.decide(this.approval, msg.type, msg.scope)
+        : msg.type === "approve" || msg.type === "reject" ? async() => {assertApprovalBinding(this.approval,msg,{required:!!this.authority});await this.decide(this.approval, msg.type, msg.scope);}
         : msg.type === "viewport" ? () => (this.paused ? this.setViewport(msg.mode === "mobile" ? "mobile" : "desktop", msg) : Promise.resolve())
         : null;
       if (control) { control().catch(e => this.sendError(e.message)); return; }

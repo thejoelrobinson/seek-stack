@@ -1,9 +1,10 @@
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {join} from 'node:path';
-import {Client} from '@modelcontextprotocol/sdk/client/index.js';
-import {StreamableHTTPClientTransport} from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+// MCP SDK v2, as shipped with DeepSeek Harness 0.2.
+import {Client,StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
 import {dpapi} from './work-finance.js';
 import {previewResult} from './work-results.js';
+import {executeTypedAction,TYPED_ACTIONS} from './work-connector-actions.js';
 
 const APP=/^[a-z0-9][a-z0-9_-]{0,79}$/;
 const READ=/^(?:[a-z0-9_]+[-_])?(?:get|list|search|find|fetch|retrieve|read|query|lookup|describe|inspect|check)[-_]/i;
@@ -46,7 +47,15 @@ export class PipedreamConnection {
   async api(method,path,body){
     const token=await this.accessToken();
     const response=await fetch('https://api.pipedream.com'+path,{method,headers:{Authorization:`Bearer ${token}`,'x-pd-environment':this.config.environment,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)});
-    if(!response.ok)throw new Error(safeError(response.status));return response.json();
+    if(!response.ok)throw new Error(safeError(response.status));
+    const raw=await response.text();return raw?JSON.parse(raw):{};
+  }
+  async disconnect(id){
+    if(typeof id!=='string'||!/^[A-Za-z0-9_-]{1,80}$/.test(id))throw new Error('Choose a linked account to disconnect.');
+    const account=(await this.accounts(true)).find(a=>a.id===id);
+    if(!account)throw new Error('That account is no longer linked.');
+    await this.api('DELETE',`/v1/connect/${encodeURIComponent(this.config.projectId)}/accounts/${encodeURIComponent(id)}`);
+    this.accountCache=null;this.accountUntil=0;return {disconnected:account.name,status:await this.status(true)};
   }
   async accounts(fresh=false){
     if(!this.configured)throw new Error('Pipedream is not configured.');
@@ -85,23 +94,26 @@ export class PipedreamConnection {
     if(url.protocol!=='https:'||url.hostname!=='pipedream.com')throw new Error('Pipedream returned an unexpected link.');
     url.searchParams.set('app',app);return {url:url.toString(),expiresAt:result.expires_at};
   }
-  async mcp(app,fn){
+  async mcp(app,fn,{accountId}={}){
     if(!APP.test(app))throw new Error('Choose a valid app slug.');
-    const accounts=await this.accounts();if(!accounts.some(a=>a.app===app&&a.healthy))throw new Error(`Connect ${app} in Seek Connections first.`);
-    const transport=new StreamableHTTPClientTransport(new URL('https://remote.mcp.pipedream.net/v3'),{requestInit:{headers:{Authorization:`Bearer ${await this.accessToken()}`,'x-pd-project-id':this.config.projectId,'x-pd-environment':this.config.environment,'x-pd-external-user-id':'seek-local-user','x-pd-app-slug':app}}});
+    const accounts=await this.accounts();if(!accounts.some(a=>a.app===app&&a.healthy&&(!accountId||a.id===accountId)))throw new Error(`Connect ${app} in Seek Connections first.`);
+    const transport=new StreamableHTTPClientTransport(new URL('https://remote.mcp.pipedream.net/v3'),{requestInit:{headers:{Authorization:`Bearer ${await this.accessToken()}`,'x-pd-project-id':this.config.projectId,'x-pd-environment':this.config.environment,'x-pd-external-user-id':'seek-local-user','x-pd-app-slug':app,...(accountId?{'x-pd-account-id':accountId}:{})}}});
     const client=new Client({name:'seek-work',version:'1.0.0'});
     try{await client.connect(transport);return await fn(client);}
     finally{await client.close().catch(()=>{});}
   }
+  async allTools(client){const tools=[],seen=new Set();let cursor;for(let page=0;page<10;page++){const result=await client.listTools(cursor?{cursor}:undefined,{cacheMode:'refresh'});tools.push(...(result.tools||[]));const next=result.nextCursor;if(!next)return tools;if(seen.has(next))throw new Error('The connected app repeated its tool cursor.');seen.add(next);cursor=next;}throw new Error('The connected app tool catalog is too large to inspect safely.');}
+  async capabilities(){const accounts=await this.accounts();return {actions:Object.entries(TYPED_ACTIONS).map(([kind,definition])=>({kind,app:definition.app,accounts:accounts.filter(x=>x.app===definition.app&&x.healthy).map(x=>({id:x.id,name:x.accountName||x.name})),requiresVerification:true})),boundary:'OAuth remains in the host adapter; typed writes require durable task authority. Same-user host execution is not an OS sandbox.'};}
+  async write(kind,input,context,options){return executeTypedAction(this,kind,input,context,options);}
   async tools(app,query=''){return this.mcp(app,async client=>{
-    const result=await client.listTools();const q=String(query||'').toLowerCase().slice(0,80);
+    const result=await client.listTools(undefined,{cacheMode:'refresh'});const q=String(query||'').toLowerCase().slice(0,80);
     const matching=(result.tools||[]).filter(t=>!q||`${t.name} ${t.description||''}`.toLowerCase().includes(q));
     return {app,tools:matching.slice(0,20).map(t=>({name:t.name,description:String(t.description||'').slice(0,350),inputSchema:t.inputSchema,readable:readable(t)})),matching:matching.length,truncated:matching.length>20||!!result.nextCursor};
   });}
   async read(app,name,args,capture){
     if(typeof name!=='string'||!name||!args||typeof args!=='object'||Array.isArray(args))throw new Error('Specify an app tool and JSON object arguments.');
     return this.mcp(app,async client=>{
-      const list=await client.listTools();const tool=(list.tools||[]).find(t=>t.name===name);
+      const list=await client.listTools(undefined,{cacheMode:'refresh'});const tool=(list.tools||[]).find(t=>t.name===name);
       if(!tool)throw new Error('That tool was not found in the connected app.');
       if(!readable(tool))throw new Error('This action may change data. Use the browser approval flow for it.');
       const result=await client.callTool({name,arguments:args});

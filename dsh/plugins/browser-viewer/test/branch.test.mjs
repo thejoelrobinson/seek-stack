@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {WorkEngine} from '../lib/work-server.js';
+import {FakeHarness} from './fake-harness.mjs';
+import {taskPage} from '../lib/work-updates.js';
+
+test('Retry/edit from an earlier request branches into a new task and leaves the original untouched',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'seek-branch-'));
+ const engine=new WorkEngine(new FakeHarness(),root,{warn(){},info(){}},()=>null);await engine.init();
+ const original=await engine.create({objective:'Plan a weekend in Austin.',mode:'chat',project:'Travel'});
+ original.messages.push({role:'assistant',text:'Here is a draft plan with BBQ and music.',time:Date.now()},{role:'user',text:'Make it cheaper.',time:Date.now()},{role:'assistant',text:'Cheaper plan.',time:Date.now()});
+ const before=JSON.stringify(original.messages);
+ const retry=await engine.create({objective:'Make it cheaper.',mode:'chat',branchFrom:{taskId:original.id,messageIndex:2}});
+ assert.notEqual(retry.id,original.id);assert.equal(JSON.stringify(original.messages),before,'original conversation is unchanged');
+ assert.deepEqual({taskId:retry.branchFrom.taskId,messageIndex:retry.branchFrom.messageIndex,edited:retry.branchFrom.edited},{taskId:original.id,messageIndex:2,edited:false});
+ assert.equal(retry.project,'Travel','branch inherits the project');assert.ok(retry.inputs.includes('earlier-conversation.md'));
+ const transcript=await readFile(join(retry.cwd,'earlier-conversation.md'),'utf8');
+ assert.match(transcript,/Plan a weekend in Austin/);assert.match(transcript,/BBQ and music/);assert.doesNotMatch(transcript,/Cheaper plan/,'only turns before the retried request are carried');
+ assert.match(engine.instructions(retry),/earlier-conversation\.md/);
+ const edited=await engine.create({objective:'Make it cheaper and kid friendly.',mode:'chat',branchFrom:{taskId:original.id,messageIndex:2}});assert.equal(edited.branchFrom.edited,true);
+ const first=await engine.create({objective:'Plan Dallas instead.',mode:'chat',branchFrom:{taskId:original.id,messageIndex:0}});assert.match(await readFile(join(first.cwd,'earlier-conversation.md'),'utf8'),/This was the first request/);
+ await assert.rejects(engine.create({objective:'x',branchFrom:{taskId:original.id,messageIndex:1}}),/earlier requests/,'assistant turns cannot be a branch point');
+ await assert.rejects(engine.create({objective:'x',branchFrom:{taskId:original.id,messageIndex:99}}),/earlier requests/);
+ assert.equal(taskPage(retry).branchFrom.title,original.title,'branch details reach the client');
+ const reloaded=new WorkEngine(new FakeHarness(),root,{warn(){},info(){}},()=>null);await engine.save?.();await reloaded.init();
+ assert.equal(reloaded.task(retry.id).branchFrom.taskId,original.id,'branch link survives restart');
+});

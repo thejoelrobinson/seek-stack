@@ -249,7 +249,9 @@ window.__ModuleLoader__.load({
 				}
 				open = false;
 			}
+			var approvalBinding = {};
 			function onStatus(m) {
+				approvalBinding = {proposalId:m.approval?.proposalId||m.approval?.id,fingerprint:m.approval?.fingerprint};
 				setConnected(true);
 				paused = !!m.paused;
 				pauseBtn.textContent = paused ? "Hand back" : "Take control";
@@ -364,8 +366,8 @@ window.__ModuleLoader__.load({
                 e.preventDefault(); send({type:"text",text:e.clipboardData.getData("text/plain")});
             });
             pauseBtn.addEventListener("click", () => send({type:"pause",paused:!paused}));
-            approveBtn.addEventListener("click", () => send({type:"approve",scope:"once"}));
-            rejectBtn.addEventListener("click", () => send({type:"reject"}));
+            approveBtn.addEventListener("click", () => send({type:"approve",scope:"once",...approvalBinding}));
+            rejectBtn.addEventListener("click", () => send({type:"reject",...approvalBinding}));
             expandBtn.addEventListener("click", () => {
                 var large = panel.dataset.expanded !== "true";
                 panel.dataset.expanded = String(large);

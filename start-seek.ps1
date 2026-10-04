@@ -156,7 +156,7 @@ if (Test-Port $WebPort) {
   Write-Log "starting dsh web..."
   $env:DSH_HOME = $SeekHome
   $webLog = Join-Path $SeekHome "web.log"
-  $dshCmd = if ($TrustedHost) { "dsh web --trusted-host $TrustedHost" } else { "dsh web" }
+  $dshCmd = if ($TrustedHost) { "dsh web --no-open --trusted-host $TrustedHost" } else { "dsh web --no-open" }
   Start-Process -FilePath "cmd.exe" `
     -ArgumentList '/c', ('{0} > "{1}" 2>&1' -f $dshCmd, $webLog) `
     -WindowStyle Hidden

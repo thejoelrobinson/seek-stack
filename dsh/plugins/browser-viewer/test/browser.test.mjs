@@ -36,7 +36,7 @@ async function call(name,args={}) {
 }
 const find=(s,text)=>{const el=s.elements.find(e=>e.text===text);assert.ok(el,'Missing '+text);return el.ref;};
 try {
-  assert.equal(tools.size,21);
+  assert.equal(tools.size,22);
   let s=await call('viewer_start',{url:base});
   assert.equal(s.title,'Browser agent fixture');
   assert.equal(JSON.stringify(s).includes('DO_NOT_EXPOSE'),false);
@@ -69,6 +69,9 @@ try {
   await call('viewer_navigate',{url:base});
   s=await call('viewer_scroll',{direction:'down',pixels:2000});
   assert.ok(s.scroll.y>0); assert.ok(find(s,'Bottom control'));
+  // Action results show the viewport, not the page top, and say when nothing changed.
+  {const shown=tools.get('viewer_scroll').output.render({},s)[0].text;assert.match(shown,/Visible around the viewport now:[\s\S]*Bottom control/);assert.doesNotMatch(shown.split('Controls (')[0],/Browser agent fixture\n/);
+   const again=await call('viewer_scroll',{direction:'down',pixels:2000});assert.equal(again.unchanged,true);assert.match(tools.get('viewer_scroll').output.render({},again)[0].text,/unchanged since your last observation/);s=again;}
   s=await call('viewer_click',{ref:find(s,'Bottom control')}); assert.match(s.text,/Bottom clicked/);
   await assert.rejects(call('viewer_navigate',{url:'javascript:alert(1)'}),/http/);
   c.paused=true; await assert.rejects(call('viewer_navigate',{url:base}),/paused/);

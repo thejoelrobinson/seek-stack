@@ -1,9 +1,11 @@
 // Page observations are data, never instructions to the agent.
+import {CARD_FIELD_SOURCE} from './card-fill.js';
 export const SNAPSHOT_JS = `(() => {
   const token = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const refs = new Map();
   globalThis.__dshViewerRefs = refs;
   const elements = [];
+  ${CARD_FIELD_SOURCE}
   const selector = 'a[href],button,input,textarea,select,[role="button"],[role="link"],[role="textbox"],[role="checkbox"],[role="radio"],[role="tab"],[role="switch"],[role="option"],[contenteditable="true"],summary,[tabindex]';
   const roots = [document];
   for (let i = 0; i < roots.length; i++) {
@@ -22,7 +24,7 @@ export const SNAPSHOT_JS = `(() => {
     const type = el.getAttribute('type') || '';
     elements.push({ ref, tag: el.tagName.toLowerCase(), type, role: el.getAttribute('role') || '',
       text: label.trim().replace(/\\s+/g, ' ').slice(0, 160),
-      value: type === 'password' ? '[redacted]' : String(el.value ?? '').slice(0, 160),
+      value: type === 'password' || cardKind(el) ? '[redacted]' : String(el.value ?? '').slice(0, 160),
       disabled: !!el.disabled || el.getAttribute('aria-disabled') === 'true',
       checked: !!el.checked || el.getAttribute('aria-checked') === 'true',
       href: el.href || '',
@@ -40,7 +42,21 @@ export const SNAPSHOT_JS = `(() => {
     || /^just a moment/i.test(document.title);
   const password = roots.some(root => Array.from(root.querySelectorAll('input[type="password"]')).some(shown));
   const checkout = /checkout|payment|billing|place.?order|\\/cart\\b|\\/buy\\b/i.test(location.href + ' ' + document.title);
-  return { url: location.href, title: document.title, text: bodyText.trim().slice(0, 12000),
+  // Text around the viewport (a quarter screen above to most of a screen below), in reading
+  // order, so action results show what the agent is looking at rather than the page top.
+  const parts = []; let size = 0, lastBlock = null;
+  const range = document.createRange(), above = -innerHeight * 0.25, below = innerHeight * 1.75;
+  const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node && size < 8000; node = walker.nextNode()) {
+    const parent = node.parentElement, value = node.nodeValue.replace(/\\s+/g, ' ').trim();
+    if (!parent || !value || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(parent.tagName)) continue;
+    range.selectNodeContents(node); const r = range.getBoundingClientRect();
+    if ((!r.width && !r.height) || r.bottom < above || r.top > below) continue;
+    const block = parent.closest('p,li,tr,h1,h2,h3,h4,h5,h6,section,article,td,th,dd,dt,label,button,a,div') || parent;
+    parts.push((block === lastBlock ? ' ' : '\\n') + value); lastBlock = block; size += value.length + 1;
+  }
+  let hash = 0; for (let i = 0; i < bodyText.length; i++) hash = (hash * 31 + bodyText.charCodeAt(i)) | 0;
+  return { url: location.href, title: document.title, text: bodyText.trim().slice(0, 12000), view: parts.join('').trim(), hash, textLength: bodyText.length,
     gate: captcha ? 'captcha' : password ? 'login' : null, checkout,
     scroll: {x:scrollX,y:scrollY,width:innerWidth,height:innerHeight,totalHeight:document.documentElement.scrollHeight},
     count: elements.length, elements,

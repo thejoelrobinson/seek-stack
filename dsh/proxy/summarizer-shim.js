@@ -21,6 +21,7 @@ const path = require('node:path');
 const LISTEN = Number(process.env.SEEK_SHIM_PORT) || 18800;
 const TARGET = Number(process.env.SEEK_LLAMA_PORT) || 18798;
 const SUMMARIZER_CAP = 8192;
+const COMPACTION_DIRECTIVE = 'You are now acting as a compaction engine';
 // Log beside this script, so the file moves with it and no absolute path is baked in.
 const LOG = path.join(__dirname, 'wire.log');
 
@@ -35,8 +36,12 @@ http.createServer((req, res) => {
       try {
         const j = JSON.parse(buf.toString('utf8'));
         const cap = j.max_completion_tokens ?? j.max_tokens;
-        if (cap === SUMMARIZER_CAP) {
+        // dsh 0.1 marks the summarizer by its fixed 8192 cap. dsh 0.2 sends the compaction
+        // directive as the final user message instead (and a much larger default cap).
+        const last = (j.messages || []).at(-1), lastText = typeof last?.content === 'string' ? last.content : (last?.content || []).map(p => p?.text || '').join('');
+        if (cap === SUMMARIZER_CAP || (last?.role === 'user' && lastText.startsWith(COMPACTION_DIRECTIVE))) {
           j.chat_template_kwargs = { ...(j.chat_template_kwargs || {}), enable_thinking: false };
+          for (const key of ['max_tokens', 'max_completion_tokens']) if (j[key] !== undefined && j[key] > SUMMARIZER_CAP) j[key] = SUMMARIZER_CAP;
           buf = Buffer.from(JSON.stringify(j));
           log(`SUMMARIZER cap=${cap} msgs=${(j.messages || []).length} -> thinking DISABLED`);
         } else {
