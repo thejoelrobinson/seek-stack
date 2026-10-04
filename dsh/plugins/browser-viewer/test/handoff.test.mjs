@@ -31,12 +31,12 @@ const ref = (s, text) => { const el = s.elements.find(e => e.text === text); ass
 const pageText = () => c.cdp.evaluate(c.activeTabId, 'document.querySelector("#r")?.textContent || ""');
 
 try {
-  assert.equal(tools.size, 22);
+  assert.equal(tools.size,23);
 
   // Login wall: the agent is steered to hand off and can never type a password.
   let s = await call('viewer_navigate', {url: base + '/login'});
   assert.equal(s.gate, 'login');
-  assert.match(s.note, /viewer_handoff/);
+  assert.match(s.gateNote, /viewer_handoff/);
   await assert.rejects(call('viewer_fill', {ref: ref(s, 'Password'), text: 'hunter2'}), /typed by the user/);
   s = await call('viewer_click', {ref: ref(s, 'Password')});
   await assert.rejects(call('viewer_type', {text: 'hunter2'}), /typed by the user/);
@@ -71,7 +71,7 @@ try {
   // CAPTCHA: handed to the user automatically, not left to the model.
   s = await call('viewer_navigate', {url: base + '/captcha'});
   assert.equal(s.gate, 'captcha');
-  assert.match(s.note, /^HANDOFF/);
+  assert.match(s.gateNote, /^HANDOFF/);
   assert.equal(c.paused, true);
   assert.equal(c.handoff.reason, 'captcha');
   await c.handBack();

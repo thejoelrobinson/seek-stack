@@ -10,6 +10,7 @@ import {mkdir, writeFile, readFile, rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
+import {productsScript, productLines, rankProducts, searchTerms} from './page-products.js';
 
 export const ROOT = join(homedir(), '.dsh', 'browser', 'fastlane');
 export const POOL_SIZE = 4;
@@ -34,11 +35,13 @@ export class GateError extends Error {
 }
 
 // Resolves once the DOM has been quiet for quietMs (SPAs keep rendering after DOMContentLoaded),
-// or after maxMs. One round trip instead of polling from Node.
-const SETTLE_JS = (quietMs, maxMs, minText) => `new Promise(done => {
+// or after maxMs. One round trip instead of polling from Node. attributes: count attribute changes
+// as activity (receipts expand rows that way); search pages churn attributes forever (lazy images,
+// carousels), which held every page to the 8 s cap, so plain reads watch content only.
+const SETTLE_JS = (quietMs, maxMs, minText, attributes = true) => `new Promise(done => {
   const t0 = performance.now(); let last = t0;
   const mo = new MutationObserver(() => { last = performance.now(); });
-  mo.observe(document, {subtree: true, childList: true, characterData: true, attributes: true});
+  mo.observe(document, {subtree: true, childList: true, characterData: true, attributes: ${attributes ? 'true' : 'false'}});
   (function tick() {
     const now = performance.now(), text = (document.body && document.body.innerText || '').length;
     const ready = document.readyState !== 'loading' && text >= ${minText};
@@ -47,9 +50,9 @@ const SETTLE_JS = (quietMs, maxMs, minText) => `new Promise(done => {
   })();
 })`;
 
-export async function settle(cdp, tab, {quietMs = 350, maxMs = 8000, minText = 60} = {}) {
+export async function settle(cdp, tab, {quietMs = 350, maxMs = 8000, minText = 60, attributes = true} = {}) {
   for (let tries = 0; tries < 4; tries++) {
-    try { return await cdp.evaluate(tab, SETTLE_JS(quietMs, maxMs, minText)); }
+    try { return await cdp.evaluate(tab, SETTLE_JS(quietMs, maxMs, minText, attributes)); }
     catch (e) {
       // A redirect or client-side navigation replaced the page mid-wait; wait on the new one.
       if (!/context|destroyed|navigat|Cannot find|Inspected target/i.test(e.message)) throw e;
@@ -259,17 +262,22 @@ export async function readPages(c, args, {session, signal} = {}) {
   progress(c, session, batch);
   const {results, gate, stop} = await runPool(c, urls, async (tab, url, i) => {
     await c.cdp.navigate(tab, url);
-    await settle(c.cdp, tab);
+    await settle(c.cdp, tab, {quietMs: 300, maxMs: 5000, attributes: false});
     const g = await c.cdp.evaluate(tab, GATE_JS);
     if (g) throw new GateError(g, tab, url);
     const page = await c.cdp.evaluate(tab, EXTRACT_JS(maxChars, args.links));
+    // A search or listing page comes back as its products, so several searches compare in one call.
+    // Background tabs are reused, so their refs are useless: rows carry short links instead.
+    const listing = await c.cdp.evaluate(tab, productsScript(1, 60)).catch(() => null);
+    const cards = (listing?.cards || []).filter(p => !p.dup);
+    const products = cards.length >= 3 ? productLines({cards: rankProducts(cards, searchTerms(page.url), focus)}, page.url, {hrefs: true, refs: false}) : [];
     const file = join(dir, `${String(i + 1).padStart(3, '0')}.md`);
-    await writeFile(file, `# ${page.title}\n${page.url}\n\n${page.text}\n`);
+    await writeFile(file, `# ${page.title}\n${page.url}\n\n${products.length ? `## Products (${products.length})\n${products.join('\n')}\n\n## Page text\n` : ''}${page.text}\n`);
     const lines = page.text.split('\n');
     const hits = focus.length ? lines.filter(l => focus.some(f => l.toLowerCase().includes(f))).slice(0, 4) : [];
     const lead = lines.filter(l => l.length > 50).slice(0, 2).join(' ');
-    return {status: page.text.length > 80 ? 'ok' : 'empty', url, finalUrl: page.url, title: clip(page.title, 90), chars: page.text.length, truncated: page.truncated, file,
-      excerpt: clip(hits.length ? hits.join(' … ') : lead, 320), headings: (page.headings || []).slice(0, 6).map(h => clip(h, 60)), links: page.links};
+    return {status: page.text.length > 80 || products.length ? 'ok' : 'empty', url, finalUrl: page.url, title: clip(page.title, 90), chars: page.text.length, truncated: page.truncated, file,
+      excerpt: clip(hits.length ? hits.join(' … ') : lead, 320), headings: (page.headings || []).slice(0, 6).map(h => clip(h, 60)), links: page.links, products};
   }, {concurrency: Number(args.concurrency) || POOL_SIZE, signal, onDone: (i, r) => {
     batch.done++; r.status === 'ok' ? batch.ok++ : r.status === 'empty' ? batch.review++ : batch.failed++;
     batch.items.push({i, label: clip(r.title || urls[i], 60), status: r.status});
@@ -282,8 +290,11 @@ export async function readPages(c, args, {session, signal} = {}) {
   const links = index.flatMap(r => r?.links || []);
   if (links.length) await saveJson(dir, 'links.json', {id, links: [...new Map(links.map(l => [l.href, l])).values()]});
   if (gate) await handGate(c, session, gate, 'reading the rest');
-  // The digest is all the model sees: one line per page, full text in the files.
-  const lines = index.map(r => r ? `${r.n}. [${r.status}] ${r.title || r.url}${r.status === 'ok' ? ` (${r.chars} chars)` : r.error ? ` — ${r.error}` : ''}\n   ${r.excerpt || ''}` : '');
+  // The digest is all the model sees: one line per page (or its top products), full text in the files.
+  const perPage = Math.max(3, Math.min(12, Math.floor(96 / Math.max(1, index.length))));
+  const lines = index.map(r => !r ? '' : r.products?.length
+    ? `${r.n}. [${r.status}] ${r.title || r.url} — ${r.products.length} products${r.products.length > perPage ? ` (first ${perPage}; all in the file)` : ''}:\n${r.products.slice(0, perPage).map(l => '   ' + l).join('\n')}`
+    : `${r.n}. [${r.status}] ${r.title || r.url}${r.status === 'ok' ? ` (${r.chars} chars)` : r.error ? ` — ${r.error}` : ''}\n   ${r.excerpt || ''}`);
   const failed = index.filter(r => r && r.status !== 'ok').length;
   return {id, folder: dir, pages: index.length, ok: batch.ok, failed, blocked: !!gate, halt: !!gate,
     digest: `Read ${batch.ok}/${urls.length} pages in ${((Date.now() - batch.startedAt) / 1000).toFixed(1)} s across ${batch.tabs} tabs. Full text of each page: ${dir}\\NNN.md (index.json lists them${links.length ? `; ${links.length} matching links saved, listId ${id}` : ''}). Read a page file with your file tools when you need its detail.${stop === 'paused' ? '\nSTOPPED: the user took control of the browser. End your turn; you will be resumed when they hand it back.' : stop === 'failures' ? '\nSTOPPED after three failures in a row; check the site or connection before retrying.' : ''}${gate ? `\nSTOPPED: page ${index.findIndex(r => r?.status === 'blocked') + 1} needs the user (${gate.gate}); the browser was handed to them. End your turn; you will be resumed.` : ''}\n\n${lines.filter(Boolean).join('\n')}`.slice(0, 16000)};

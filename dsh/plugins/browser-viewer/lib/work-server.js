@@ -199,6 +199,8 @@ export class WorkEngine {
     for(const {event:e} of h.events || []) {
       if(e.seq<=(t.lastSeq??-1))continue;
       t.lastSeq=e.seq;
+      // Compaction drops old page observations from the agent's context: its next look must be whole.
+      if(e.type==='compaction/start'||e.type==='compaction/end')this.onCompaction?.(t);
       if(e.type==='assistant/message') {
         const cleaned=stripLeakedToolCalls(contentText(e.data?.message?.content)),message=cleaned.text;
         if(cleaned.suggestions&&!t.suggestions?.length)t.suggestions=cleaned.suggestions;
@@ -211,7 +213,7 @@ export class WorkEngine {
         t.toolCounts??={};t.toolCounts[name]=(t.toolCounts[name]||0)+1;
         if(e.data?.callId){t.recentCalls??={};t.recentCalls[e.data.callId]=name;const keys=Object.keys(t.recentCalls);if(keys.length>24)delete t.recentCalls[keys[0]];}
         const signature=createHash('sha256').update(JSON.stringify([name,e.data?.arguments||e.data?.args||{}])).digest('hex');t.sameToolCount=t.lastToolSignature===signature?(t.sameToolCount||0)+1:1;t.lastToolSignature=signature;noteAction(t,name,e.data?.arguments||e.data?.args);
-        const friendly={viewer_start:'Opening the browser',viewer_navigate:'Opening a page',viewer_click:'Using the browser',viewer_fill:'Filling a form',viewer_type:'Typing',viewer_select:'Choosing an option',viewer_scroll:'Looking through the page',viewer_snapshot:'Reading the page',viewer_text:'Reading the page',viewer_handoff:'Handing the browser to you',viewer_collect_links:'Collecting links',viewer_read_pages:'Reading pages in parallel',viewer_receipts:'Reading receipts in parallel',web_search:'Searching the web',write:'Creating a file',edit:'Updating a file',bash:'Working on the task',get_goal:'Checking progress',update_goal:'Checking the outcome',discord_servers:'Checking Discord servers',discord_channels:'Checking Discord channels',discord_messages:'Reading Discord messages'};
+        const friendly={viewer_start:'Opening the browser',viewer_navigate:'Opening a page',viewer_click:'Using the browser',viewer_fill:'Filling a form',viewer_type:'Typing',viewer_select:'Choosing an option',viewer_scroll:'Looking through the page',viewer_snapshot:'Reading the page',viewer_text:'Reading the page',viewer_find:'Searching the page',viewer_handoff:'Handing the browser to you',viewer_collect_links:'Collecting links',viewer_read_pages:'Reading pages in parallel',viewer_receipts:'Reading receipts in parallel',web_search:'Searching the web',write:'Creating a file',edit:'Updating a file',bash:'Working on the task',get_goal:'Checking progress',update_goal:'Checking the outcome',discord_servers:'Checking Discord servers',discord_channels:'Checking Discord channels',discord_messages:'Reading Discord messages'};
         if(name.startsWith('viewer_')){t.usesBrowser=true;const asked=t.messages.findLast(m=>m.role==='user')?.time||0;if(!(t.browserAt>=asked))t.browserAt=e.time||Date.now();}
         if(!name.startsWith('work_'))this.record(t,friendly[name]||(name.startsWith('mcp__')?'Using a connected app':'Working through the next step'));
       }
@@ -572,6 +574,7 @@ export async function mountWork(ctx,controller,isTrusted) {
   controller.onDecision=(a,decision,scope)=>engine.operation(()=>engine.approvalDecided(a,decision,scope));
   const approvalChoice={'Pay now':['approve','once'],'Approve once':['approve','once'],'For this task':['approve','task'],'Always this action':['approve','always'],'Always on this site':['approve','always'],'Allow on this site':['approve','task'],'Reject':['reject','once']};
   const release=()=>{controller.handoff=null;controller.paused=false;void controller.ensureAgentViewport().catch(e=>controller.sendError('viewport: '+e.message));controller.sendStatus();};
+  engine.onCompaction=()=>controller.forgetLooks?.();
   engine.onHandoffDropped=t=>{if(controller.handoff&&controller.handoff.sessionId===t.sessionId)release();};
   engine.onStopped=(t,action)=>{if(controller.handoff?.sessionId===t.sessionId)release();if(action==='stop'&&controller.approval?.sessionId===t.sessionId){controller.approval=null;controller.sendStatus();}};
   const handBackTask=async(t,note,via)=>{
@@ -686,7 +689,7 @@ export async function mountWork(ctx,controller,isTrusted) {
   const json=(res,status,value)=>{let body=Buffer.from(JSON.stringify(value));const gzip=body.length>=1024&&/(?:^|,)\s*gzip(?:\s*,|\s*$)/.test(String(res.req?.headers['accept-encoding']||''));if(gzip)body=gzipSync(body);res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store',Vary:'Accept-Encoding','X-Content-Type-Options':'nosniff',...(gzip?{'Content-Encoding':'gzip'}:{}),'Content-Length':body.length});res.end(body);};
   const subagentActivityLabel=name=>({
     viewer_start:'Opening the browser',viewer_navigate:'Opening a page',viewer_click:'Using the browser',viewer_fill:'Filling a form',viewer_select:'Choosing an option',
-    viewer_scroll:'Looking through the page',viewer_snapshot:'Reading the page',viewer_text:'Reading the page',viewer_collect_links:'Collecting links',viewer_read_pages:'Reading pages in parallel',
+    viewer_scroll:'Looking through the page',viewer_snapshot:'Reading the page',viewer_text:'Reading the page',viewer_find:'Searching the page',viewer_collect_links:'Collecting links',viewer_read_pages:'Reading pages in parallel',
     viewer_receipts:'Reading receipts in parallel',web_search:'Searching the web',bash:'Working in the terminal',pwsh:'Running a PowerShell command',write:'Creating a file',edit:'Updating a file',
     spawn_agent:'Delegating a work step',list_agents:'Checking child agents',send_message:'Messaging a child agent',interrupt_agent:'Stopping a child agent'
   })[name]||(name.startsWith('mcp__')?'Using a connected app':name?'Working through the next step':'');
