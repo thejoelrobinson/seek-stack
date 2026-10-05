@@ -15,9 +15,13 @@ test('find makes only matching shown refs usable',async()=>{
  const result=await agent.find('Save');assert.match(result.text,/e2 Button/);assert.ok(!result.text.includes('Document'));await assert.rejects(agent.act('type',{ref:'e1',text:'x'}));
 });
 test('host resolver fences child and paused tasks; tool arguments cannot supply credentials',async()=>{
- let reads=0;let owner={taskId:'task',sessionId:'session',status:'running'};const runtime=new DesktopRuntime({connectionFile:'host-only',resolveOwner:()=>owner,readFileImpl:async()=>{reads++;return JSON.stringify({endpoint:'http://127.0.0.1:123',token:'a'.repeat(64)});},clientFactory:()=>({auth:true,attach:async()=>{},request:async()=>({state:'agent',taskId:'task',capabilities:{structuredObservation:true}}),close(){this.auth=null;},observe:async()=>frame()})});
+ let reads=0;let owner={taskId:'task',sessionId:'session',status:'running'};const runtime=new DesktopRuntime({connectionFile:'host-only',resolveOwner:()=>owner,readFileImpl:async()=>{reads++;return JSON.stringify({endpoint:'http://127.0.0.1:123',token:'a'.repeat(64)});},clientFactory:()=>({auth:true,attach:async()=>{},request:async()=>({state:'agent',taskId:'task',capabilities:{structuredObservation:true}}),stop:async()=>{},close(){this.auth=null;},observe:async()=>frame()})});
  const exec={agent:{id:'session'}};owner={...owner,child:true};await assert.rejects(runtime.forExecution(exec));assert.equal(reads,0);
  owner={...owner,child:false,status:'paused'};await assert.rejects(runtime.forExecution(exec));owner.status='running';
  const tools=buildDesktopTools({defineTool:x=>x,runtime});assert.ok(tools.every(t=>!('token' in t.parameters)&&!('taskId' in t.parameters)&&!('endpoint' in t.parameters)));
  const result=await tools.find(t=>t.name==='desktop_observe').execute({},exec);assert.match(result.text,/Document/);runtime.close();
+});
+test('queued input rechecks host ownership before executing',async()=>{
+ let writes=0;const agent=new DesktopAgent({taskId:'t',client:{observe:async()=>frame(),action:async()=>{writes++;}}});await agent.observe();
+ await assert.rejects(agent.act('click',{ref:'e2'},async()=>{throw Error('Task paused');}),/paused/);assert.equal(writes,0);
 });

@@ -43,5 +43,5 @@ export class DesktopRuntime {
    },1000);this.watchdog.unref?.();return agent;
   }finally{this.attaching=false;}
  }
- close(){clearInterval(this.watchdog);this.current?.close();this.current=null;}
+ close(){clearInterval(this.watchdog);const current=this.current;this.current=null;if(current?.client.auth)void current.client.stop().catch(()=>{});current?.close();}
 }

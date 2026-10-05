@@ -98,7 +98,7 @@ func validateAccessibility(_ command: [String: Any]) throws {
     guard let windowID = command["windowId"] as? String else { return } // probe only has no authority
     guard windowID == observedWindowID, let previous = observedWindow, CFEqual(try currentWindow(), previous),
           let id = command["targetId"] as? String, let target = targets[id], identities[id] == identityOf(target),
-          textAttribute(target, "AXSubrole") != "AXSecureTextField" else { throw BridgeFailure.stale }
+          textAttribute(target, "AXSubrole") != "AXSecureTextField", (attribute(target, "AXEnabled") as? Bool) != false else { throw BridgeFailure.stale }
     if let focusID = command["focusId"] as? String {
         guard focusID == id, let focused = elementAttribute(systemElement, "AXFocusedUIElement"), CFEqual(focused, target) else { throw BridgeFailure.stale }
     }

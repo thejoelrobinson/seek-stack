@@ -47,6 +47,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb xdotool python3-gi gir1.2-atspi-2.0 at-spi2-core dbus-x11 openbox
       - run: npm run build:dir
+      - name: Configure packaged Linux sandbox on the runner
+        if: runner.os == 'Linux'
+        run: sudo chown root:root dist/linux-unpacked/chrome-sandbox && sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
       - name: Packaged app smoke test
         if: runner.os != 'Linux'
         run: npm run smoke:packaged
