@@ -1,0 +1,101 @@
+name: Desktop bridge
+on:
+  pull_request:
+    paths: ['desktop-bridge/**', '.github/workflows/desktop-bridge.yml']
+  push:
+    branches: [main, master]
+    tags: ['bridge-v*']
+    paths: ['desktop-bridge/**', '.github/workflows/desktop-bridge.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bridge-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop-bridge
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      SEEK_BRIDGE_SMOKE_OUTPUT: smoke-output
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop-bridge/package-lock.json
+      - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm run check
+      - run: npm test
+      - run: npm run test:python
+      - run: npm audit --audit-level=high
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/bridge-v')
+        run: node -e "if(process.env.GITHUB_REF_NAME !== 'bridge-v'+require('./package.json').version)process.exit(1)"
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb xdotool python3-gi gir1.2-atspi-2.0 at-spi2-core dbus-x11 openbox
+      - run: npm run build:dir
+      - name: Packaged app smoke test
+        if: runner.os != 'Linux'
+        run: npm run smoke:packaged
+      - name: Packaged Linux smoke test
+        if: runner.os == 'Linux'
+        run: dbus-run-session -- xvfb-run -a npm run smoke:packaged
+      - name: Windows native accessibility round trip
+        if: runner.os == 'Windows'
+        run: npm run smoke:packaged:input
+      - name: Linux native accessibility round trip
+        if: runner.os == 'Linux'
+        run: dbus-run-session -- xvfb-run -a bash scripts/linux-smoke.sh
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bridge-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            desktop-bridge/dist/*.exe
+            desktop-bridge/dist/*.zip
+            desktop-bridge/dist/*.dmg
+            desktop-bridge/dist/*.AppImage
+            desktop-bridge/dist/*.deb
+            desktop-bridge/smoke-output/*.png
+          if-no-files-found: warn
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/bridge-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bridge-*
+          path: release
+          merge-multiple: true
+      - name: Prepare draft preview release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          cd release
+          rm -f panel.png
+          sha256sum * > SHA256SUMS
+          printf '%s\n' 'Seek Desktop developer preview. Unsigned installers; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI and X11 at 100% scaling. Windows selected-window fill/invoke support background operation. Wayland control and remote pairing remain unfinished. See desktop-bridge/README.md for permissions and validation limits.' > ../notes.md
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --prerelease --title "Seek Desktop $GITHUB_REF_NAME" --notes-file ../notes.md
+          fi
+          test "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" = true
+          gh release upload "$GITHUB_REF_NAME" ./* --clobber

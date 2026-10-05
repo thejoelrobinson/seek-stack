@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {DesktopBridgeClient} from '../src/client.js';
+test('client releases the current session with its bound authority',async()=>{
+ const calls=[];const client=new DesktopBridgeClient({endpoint:'http://127.0.0.1:1',token:'x',fetchImpl:async(path,options)=>{calls.push({path,options});return {ok:true,json:async()=>({state:'agent',taskId:'t',sessionId:'s',epoch:2})};}});
+ await client.attach('t');await client.stop();assert.deepEqual(JSON.parse(calls.at(-1).options.body),{sessionId:'s',epoch:2});assert.equal(client.auth,null);
+});
+test('client keeps authority task-bound and credentials outside action payload',async()=>{const requests=[];const c=new DesktopBridgeClient({endpoint:'http://127.0.0.1:1',token:'secret',fetchImpl:async(url,opts)=>{requests.push({url,opts});return {ok:true,json:async()=>({state:'agent',taskId:'t',sessionId:'s',epoch:3})};}});await assert.rejects(c.attach('other'));await c.attach('t');await c.action({kind:'key',key:'Enter',observationId:'o'});c.close();const a=requests.at(-1);assert.equal(a.opts.headers.Authorization,'Bearer secret');assert.equal(JSON.parse(a.opts.body).epoch,3);assert.ok(!a.opts.body.includes('secret'));assert.throws(()=>new DesktopBridgeClient({endpoint:'https://remote.example',token:'x'}));});
