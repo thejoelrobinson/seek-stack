@@ -174,7 +174,7 @@ test('heads up: a birthday from memory, unfinished work and a mentioned pickup b
   assert.match(open.title,/Still open: Ordering a very chocolaty cake/);
   assert.match(mention.title,/^Pickup: Ordering a very chocolaty cake — Fri, Oct 9 \(in 6 days\)$/);
   assert.equal(cards.filter(c=>/\[Test\]/.test(c.title)).length,0,'test tasks never make cards');
-  await p.act(date.id,{action:'snooze'});assert.ok(!p.items().some(c=>c.id===date.id));
+  await p.act(date.id,{action:'snooze',now});assert.ok(!p.items(now).some(c=>c.id===date.id));
   await p.act(open.id,{action:'do',index:1});assert.deepEqual(engine.controlled,['c1','archive']);
   await p.act(mention.id,{action:'never'});p.scan(now+60000);assert.ok(!p.items().some(c=>c.kind==='mention'),'never means never for that task');
   assert.equal(p.scan(now+60000),false,'a rescan with nothing new changes nothing');

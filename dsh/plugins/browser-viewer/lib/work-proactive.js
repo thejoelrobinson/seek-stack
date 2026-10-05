@@ -85,10 +85,10 @@ export class Proactive {
     const before=store.headsUp.length;store.headsUp=store.headsUp.filter(i=>!(['expired','done','dismissed'].includes(i.status)&&now-(i.closedAt||i.createdAt)>30*DAY));
     return changed||before!==store.headsUp.length;
   }
-  async act(id,{action,index=0}){
+  async act(id,{action,index=0,now=Date.now()}){
     const item=this.store.headsUp.find(i=>i.id===id);if(!item)throw new Error('This card is no longer here.');
-    const close=status=>{item.status=status;item.closedAt=Date.now();};
-    if(action==='snooze'){const t=new Date();t.setDate(t.getDate()+1);t.setHours(8,0,0,0);item.status='snoozed';item.snoozeUntil=t.getTime();}
+    const close=status=>{item.status=status;item.closedAt=now;};
+    if(action==='snooze'){const t=new Date(now);t.setDate(t.getDate()+1);t.setHours(8,0,0,0);item.status='snoozed';item.snoozeUntil=t.getTime();}
     else if(action==='dismiss')close('dismissed');
     else if(action==='never'){this.store.headsUpMuted=[...new Set([...this.store.headsUpMuted,item.mute])].slice(-200);close('dismissed');}
     else if(action==='do'){
