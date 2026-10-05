@@ -112,10 +112,11 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
       const errors=[];panel.webContents.on('console-message',(_e,_level,message)=>{if(/error/i.test(message))errors.push(message);});
       const title=await panel.webContents.executeJavaScript('document.title');
       const mounted=await panel.webContents.executeJavaScript("!!document.querySelector('.buddy svg')");
+      const visibleStop=await pet.webContents.executeJavaScript("(()=>{const r=document.querySelector('#stop').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})()");
       const texture=await panel.webContents.executeJavaScript("new Promise(resolve=>{const image=new Image();image.onload=()=>resolve(image.naturalWidth>0);image.onerror=()=>resolve(false);image.src='./plush.webp';})");
       const response=await fetch(status().endpoint+'/status',{headers:{Authorization:'Bearer '+token}});
       const blocked=await fetch(status().endpoint+'/status');
-      if(title!=='Seek Desktop'||!mounted||!texture||response.status!==200||blocked.status!==403)throw Error('Packaged app smoke checks failed: '+JSON.stringify({title,mounted,texture,status:response.status,blocked:blocked.status}));
+      if(title!=='Seek Desktop'||!mounted||!texture||!visibleStop||response.status!==200||blocked.status!==403)throw Error('Packaged app smoke checks failed: '+JSON.stringify({title,mounted,texture,visibleStop,status:response.status,blocked:blocked.status}));
       await native.execute({kind:'probe'});
       if(inputSmoke){
         app.setAccessibilitySupportEnabled(true);
@@ -144,7 +145,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
           console.log('SEEK_BRIDGE_INPUT_SMOKE_OK '+JSON.stringify({platform:process.platform,structuredObservation:true,fill:true,invoke:true}));
         }finally{agent.close();stop('Smoke finished');fixture.destroy();}
       }
-      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT){await mkdir(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,{recursive:true});await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'panel.png'),(await panel.webContents.capturePage()).toPNG());}
+      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT){await mkdir(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,{recursive:true});await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'panel.png'),(await panel.webContents.capturePage()).toPNG());await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'companion.png'),(await pet.webContents.capturePage()).toPNG());}
       console.log('SEEK_BRIDGE_SMOKE_OK '+JSON.stringify({platform:process.platform,character:mounted,api:true,nativeProbe:process.platform==='win32'}));
       native.stop();server.close();await rm(credentialPath,{force:true});app.exit(0);
     }catch(e){console.error(e);native.stop();server?.close();if(credentialPath)await rm(credentialPath,{force:true});app.exit(1);}

@@ -62,7 +62,7 @@ jobs:
       - name: Linux native accessibility round trip
         if: runner.os == 'Linux'
         run: dbus-run-session -- xvfb-run -a bash scripts/linux-smoke.sh
-      - run: npm run build
+      - run: npm run package
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,6 +75,7 @@ jobs:
             desktop-bridge/dist/*.deb
             desktop-bridge/smoke-output/*.png
           if-no-files-found: warn
+          compression-level: 0
   draft-release:
     if: startsWith(github.ref, 'refs/tags/bridge-v')
     needs: build
@@ -94,7 +95,7 @@ jobs:
         shell: bash
         run: |
           cd release
-          rm -f panel.png
+          rm -f panel.png companion.png
           sha256sum * > SHA256SUMS
           printf '%s\n' 'Seek Desktop developer preview. Unsigned installers; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI and X11 at 100% scaling. Windows selected-window fill/invoke support background operation. Wayland control and remote pairing remain unfinished. See desktop-bridge/README.md for permissions and validation limits.' > ../notes.md
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
