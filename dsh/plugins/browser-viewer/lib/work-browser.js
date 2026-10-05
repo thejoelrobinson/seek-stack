@@ -147,8 +147,8 @@ function renderSheet() {
   if (approval) {
     setBanner('approve', `<div><strong>Approve this?</strong> ${esc(agentName)} wants to press “${esc(approval.label)}” on ${esc(approval.host)}. This can’t easily be undone.</div>${approvalDetails(approval)}<div class="bv-banner-actions" ${approvalAttributes(approval)}><button class="primary" data-bv="approve-once">Approve once</button><details class="approval-scopes"><summary>More approval options</summary><button data-bv="approve-task">For this task</button><button data-bv="approve-always">Always this action</button><p>This exact action can be reused. Changed content or recipients require a new review.</p></details><button data-bv="reject">Reject</button></div>`);
   } else if (user) {
-    // On a phone the note is two lines with More, so the page keeps most of the screen.
-    const html = `<div class="bv-say">${handoff ? `<strong>Your turn.</strong> ${esc(handoff.message)} ` : ''}${esc(agentName)} is paused and can’t see the page while you’re in control. Passwords you type here never reach the agent.</div><button class="bv-more" data-bv="more" type="button">More</button>${task?.handoff?.reason === 'login' ? `<div class="bv-vault" data-bv-vault="${esc(task.id)}"></div>` : ''}`;
+    // The note is one line (two on a phone) with More, so the page keeps the room.
+    const html = `<div class="bv-note">${handoff ? `<strong>Your turn.</strong> ${esc(handoff.message)} ` : ''}${esc(agentName)} is paused and can’t see the page while you’re in control. Passwords you type here never reach the agent.</div><button class="bv-more" data-bv="more" type="button">More</button>${task?.handoff?.reason === 'login' ? `<div class="bv-vault" data-bv-vault="${esc(task.id)}"></div>` : ''}`;
     if (banner.dataset.sig !== 'you' + html) bannerOpen = false;
     setBanner('you', html);
     banner.classList.toggle('open', bannerOpen);

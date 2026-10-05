@@ -46,18 +46,19 @@ body.bv-open{overflow:hidden}
 .bv-veil.nudge{animation:bv-nudge .4s}
 @keyframes bv-nudge{25%{transform:translateX(calc(-50% - 6px))}75%{transform:translateX(calc(-50% + 6px))}}
 .bv-keys{display:flex;gap:6px;padding:8px 12px;background:#fff;border-top:1px solid var(--line)}
-.bv-more{display:none}
+/* The page gets the room: the note is one line (two on a phone) until More; the rest of it and the
+   sign-in tip sit behind More. */
+.bv-banner.you{padding:6px 12px;gap:6px 10px;flex-wrap:nowrap;align-items:center}
+.bv-note{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.bv-banner.you.open{flex-wrap:wrap;align-items:flex-start}.bv-banner.you.open .bv-note{display:block}
+.bv-banner.you:not(.open) .bv-vault{display:none}
+.bv-more{flex:none;padding:3px 10px;font-size:12px}
 @media(max-width:640px){
 .bv-card{grid-template-columns:1fr;gap:12px}
 .bv-sheet{padding:0}.bv-shell{border-radius:0;height:100dvh}
 .bv-top{gap:8px;padding:8px 10px}.bv-who{display:none}.bv-main{padding:9px 12px;font-size:13px}
 #bv-addr,#bv-type{font-size:16px}
-/* The page gets the screen: the note is two lines until More, the sign-in tip sits behind it. */
-.bv-banner.you{padding:8px 12px;gap:6px 10px;flex-wrap:nowrap;align-items:flex-start}
-.bv-banner.you .bv-say{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1;min-width:0}
-.bv-banner.you.open{flex-wrap:wrap}.bv-banner.you.open .bv-say{display:block}
-.bv-banner.you:not(.open) .bv-vault{display:none}
-.bv-more{display:inline-block;flex:none;padding:4px 10px;font-size:12px}
+.bv-banner.you{align-items:flex-start}.bv-note{-webkit-line-clamp:2}
 .bv-nav,.bv-keys{padding:6px 8px}
 }
 /* Passwords & sign-ins */
