@@ -82,7 +82,7 @@ function fit() {
 
 // ── status → UI ─────────────────────────────────────────────────────────────
 const isPhone = () => matchMedia('(max-width: 640px), (pointer: coarse)').matches;
-let askedMobile = false;
+let askedMobile = false, bannerOpen = false;
 function onStatus(m) {
   status = m;
   if (pendingControl) { pendingControl = false; if (m.control !== 'user') send({type:'pause', paused:true}); }
@@ -147,7 +147,12 @@ function renderSheet() {
   if (approval) {
     setBanner('approve', `<div><strong>Approve this?</strong> ${esc(agentName)} wants to press “${esc(approval.label)}” on ${esc(approval.host)}. This can’t easily be undone.</div>${approvalDetails(approval)}<div class="bv-banner-actions" ${approvalAttributes(approval)}><button class="primary" data-bv="approve-once">Approve once</button><details class="approval-scopes"><summary>More approval options</summary><button data-bv="approve-task">For this task</button><button data-bv="approve-always">Always this action</button><p>This exact action can be reused. Changed content or recipients require a new review.</p></details><button data-bv="reject">Reject</button></div>`);
   } else if (user) {
-    setBanner('you', `<div>${handoff ? `<strong>Your turn.</strong> ${esc(handoff.message)} ` : ''}${esc(agentName)} is paused and can’t see the page while you’re in control. Passwords you type here never reach the agent.</div>${task?.handoff?.reason === 'login' ? `<div class="bv-vault" data-bv-vault="${esc(task.id)}"></div>` : ''}`);
+    // On a phone the note is two lines with More, so the page keeps most of the screen.
+    const html = `<div class="bv-say">${handoff ? `<strong>Your turn.</strong> ${esc(handoff.message)} ` : ''}${esc(agentName)} is paused and can’t see the page while you’re in control. Passwords you type here never reach the agent.</div><button class="bv-more" data-bv="more" type="button">More</button>${task?.handoff?.reason === 'login' ? `<div class="bv-vault" data-bv-vault="${esc(task.id)}"></div>` : ''}`;
+    if (banner.dataset.sig !== 'you' + html) bannerOpen = false;
+    setBanner('you', html);
+    banner.classList.toggle('open', bannerOpen);
+    const more = banner.querySelector('.bv-more'); if (more) more.textContent = bannerOpen ? 'Less' : 'More';
   } else { banner.hidden = true; banner.dataset.sig = ''; }
   const drive = control !== 'agent';
   $('#bv-nav').hidden = !drive;
@@ -254,7 +259,8 @@ function canDrive() {
 }
 function wireInput() {
   const c = $('#bv-canvas');
-  const point = e => { const r = c.getBoundingClientRect(); return {x:Math.max(0, Math.min(c.width, (e.clientX - r.left) / r.width * c.width)), y:Math.max(0, Math.min(c.height, (e.clientY - r.top) / r.height * c.height))}; };
+  // In frame pixels, with the frame size, so the server maps it onto the page whatever its zoom.
+  const point = e => { const r = c.getBoundingClientRect(); return {x:Math.max(0, Math.min(c.width, (e.clientX - r.left) / r.width * c.width)), y:Math.max(0, Math.min(c.height, (e.clientY - r.top) / r.height * c.height)), fw:c.width, fh:c.height}; };
   const mods = e => (e.altKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.metaKey ? 4 : 0) | (e.shiftKey ? 8 : 0);
   const btn = e => e.button === 2 ? 'right' : e.button === 1 ? 'middle' : 'left';
   let touch = null, mouse = null, moveQueued = null;
@@ -341,6 +347,7 @@ document.addEventListener('click', e => {
   else if (a === 'close') close();
   else if (a === 'control') open({control:true});
   else if (a === 'handback') handBack();
+  else if (a === 'more') { bannerOpen = !bannerOpen; renderSheet(); }
   else if (a === 'approve-once') decide('approve', 'once',b);
   else if (a === 'approve-task') decide('approve', 'task',b);
   else if (a === 'approve-always') decide('approve', 'always',b);

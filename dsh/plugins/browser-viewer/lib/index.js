@@ -157,6 +157,9 @@ class BrowserController {
     this.viewportMode = "desktop";
     this.mobileSize = null;
     this.inputScale = 1;
+    // What each tab actually has applied ("mobile" or "desktop"); tabs opened during a phone
+    // handoff get the phone page too, and hand-back resets every one of them.
+    this.appliedViewports = new Map();
   }
 
   async setViewport(mode, size) {
@@ -167,13 +170,54 @@ class BrowserController {
     const mobile = mode === "mobile" && this.mobileSize;
     this.inputScale = mobile ? 2 : 1;
     if (this.cdp && this.cdp.alive && this.activeTabId) {
-      await this.cdp.send("Emulation.setDeviceMetricsOverride", mobile
-        ? { ...this.mobileSize, deviceScaleFactor: 2, mobile: true }
-        : { width: this.windowWidth, height: this.windowHeight, deviceScaleFactor: 1, mobile: false }, this.cdp.tabs.get(this.activeTabId));
-      // What Chrome actually has, as opposed to what was last requested.
-      this.appliedViewport = mobile ? "mobile" : "desktop";
+      if (mobile) await this._phoneTab(this.activeTabId);
+      // Back to desktop: every tab the phone touched, not just the one in front.
+      else for (const [tab, applied] of this.appliedViewports) if (applied === "mobile" || tab === this.activeTabId) await this._desktopTab(tab).catch(() => {});
+      // What Chrome actually has in front, as opposed to what was last requested.
+      this.appliedViewport = this.appliedViewports.get(this.activeTabId) || "desktop";
     }
     this.sendStatus();
+  }
+  // A phone in control gets the phone version of the site: a desktop page squeezed onto a phone
+  // screen is drawn at a third of its size. Android Chrome's identity (with matching client hints,
+  // which Google sites check) and touch make sites serve their phone layout; the page in front is
+  // reloaded once so it switches too, unless it is the result of a form submission.
+  async _phoneTab(tab) {
+    const session = this.cdp.tabs.get(tab), already = this.appliedViewports.get(tab) === "mobile";
+    if (!session) return;
+    const desktop = this.cdp.userAgent || "", version = /Chrome\/(\d+)/.exec(desktop)?.[1] || "153";
+    await this.cdp.send("Emulation.setDeviceMetricsOverride", { ...this.mobileSize, deviceScaleFactor: 2, mobile: true }, session);
+    await this.cdp.send("Emulation.setUserAgentOverride", { userAgent: `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version}.0.0.0 Mobile Safari/537.36`,
+      userAgentMetadata: { brands: [{ brand: "Chromium", version }, { brand: "Google Chrome", version }, { brand: "Not.A/Brand", version: "99" }], fullVersion: version + ".0.0.0", platform: "Android", platformVersion: "10.0.0", architecture: "", model: "K", mobile: true } }, session);
+    await this.cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 }, session);
+    this.appliedViewports.set(tab, "mobile");
+    if (already) return;
+    const history = await this.cdp.send("Page.getNavigationHistory", {}, session).catch(() => null);
+    const entry = history?.entries?.[history.currentIndex];
+    if (entry && /^https?:/.test(entry.url) && entry.transitionType !== "form_submit") await this.cdp.send("Page.reload", {}, session).catch(() => {});
+  }
+  async _desktopTab(tab) {
+    const session = this.cdp.tabs.get(tab);
+    if (!session) { this.appliedViewports.delete(tab); return; }
+    await this.cdp.send("Emulation.setDeviceMetricsOverride", { width: this.windowWidth, height: this.windowHeight, deviceScaleFactor: 1, mobile: false }, session);
+    if (this.appliedViewports.get(tab) === "mobile") {
+      await this.cdp.send("Emulation.setUserAgentOverride", { userAgent: this.cdp.userAgent }, session);
+      await this.cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false }, session);
+    }
+    this.appliedViewports.set(tab, "desktop");
+  }
+  // Where a point on the streamed frame is on the page. The frame shows the visual viewport, which
+  // Chrome scales down for a page wider than the screen, while input is taken in the page's CSS
+  // pixels: unscaled, a tap on a zoomed-out page lands up and to the left of the finger (1 of 12
+  // buttons hit on a desktop page at a phone size). Clients send the frame size, so the point is a
+  // fraction of the visible area whatever the device scale.
+  async _framePoint(msg) {
+    const tab = await this._activeTab();
+    const metrics = await this.cdp.send("Page.getLayoutMetrics", {}, this.cdp.tabs.get(tab));
+    const v = metrics.cssVisualViewport || metrics.visualViewport;
+    if (msg.fw > 0 && msg.fh > 0) return { x: v.offsetX + (msg.x / msg.fw) * v.clientWidth, y: v.offsetY + (msg.y / msg.fh) * v.clientHeight };
+    const s = this.inputScale || 1, zoom = v.scale || 1;
+    return { x: v.offsetX + msg.x / s / zoom, y: v.offsetY + msg.y / s / zoom };
   }
   // ── vault sign-in and signed-in sites ───────────────────────────────────────
   async _clickAt(tab, p) {
@@ -271,7 +315,7 @@ class BrowserController {
 
   /** Called before every agent action. Throws rather than let the agent drive a phone page. */
   async ensureAgentViewport() {
-    if (this.appliedViewport === "mobile" || this.viewportMode !== "desktop") await this.setViewport("desktop");
+    if (this.viewportMode !== "desktop" || [...this.appliedViewports.values()].includes("mobile")) await this.setViewport("desktop");
   }
 
   /** The user may drive only when they hold control or no agent is using the browser. */
@@ -730,8 +774,10 @@ class BrowserController {
       this.sendError("Seek is using the browser. Take control first.");
       return;
     }
-    // Frames are captured at the emulated device scale; input arrives in frame pixels.
-    if (this.inputScale !== 1 && typeof msg.x === "number") { msg.x /= this.inputScale; msg.y /= this.inputScale; }
+    // Input arrives in pixels of the frame the user saw; map it onto the page (device scale and zoom).
+    if ((msg.type === "mouse" || msg.type === "wheel") && typeof msg.x === "number" && typeof msg.y === "number" && this.cdp?.alive && this.activeTabId) {
+      try { Object.assign(msg, await this._framePoint(msg)); } catch { if (this.inputScale !== 1) { msg.x /= this.inputScale; msg.y /= this.inputScale; } }
+    }
     try {
       switch (msg.type) {
         case "start":
@@ -810,6 +856,8 @@ class BrowserController {
     if (this.clients.size === 0 || !this.activeTabId || !this.cdp || !this.cdp.alive) return;
     this._streaming = true;
     try {
+      // A tab that came to the front during a phone handoff (a sign-in popup) gets the phone page too.
+      if (this.paused && this.viewportMode === "mobile" && this.mobileSize && this.appliedViewports.get(this.activeTabId) !== "mobile") await this.setViewport("mobile");
       const b64 = await this.cdp.screenshot(this.activeTabId, { format: "jpeg", quality: this.quality });
       const buf = Buffer.from(b64, "base64");
       for (const ws of this.clients) if (ws.readyState === OPEN && ws.bufferedAmount < 2 * 1024 * 1024) ws.send(buf);

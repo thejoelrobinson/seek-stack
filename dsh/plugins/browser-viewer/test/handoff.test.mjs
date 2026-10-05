@@ -14,7 +14,15 @@ const pages = {
   '/mobile': '<meta name="viewport" content="width=device-width"><title>Mobile sign in</title><input type="password">',
   '/checkout':'<title>Checkout</title><h1>Review your order</h1><button onclick="document.querySelector(\'#r\').textContent=\'Coupon applied\'">Apply coupon</button><button onclick="document.querySelector(\'#r\').textContent=\'Order placed\'">Place order</button><p id="r"></p>'
 };
-const server = createServer((req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(pages[req.url] || '<title>Frame</title>'); });
+pages['/grid'] = '<title>Desktop grid</title><style>body{margin:0}.g{display:grid;grid-template-columns:repeat(4,280px);gap:12px;padding:12px}button{height:90px}</style><div class="g">' + Array.from({length: 12}, (_, i) => '<button onclick="window.__hit=' + i + '">' + i + '</button>').join('') + '</div>';
+pages['/form'] = '<title>Order form</title><form method="post" action="/posted"><button>Submit</button></form>';
+const loads = {count: 0, posted: 0};
+const server = createServer((req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if (req.url === '/count') { loads.count++; res.end('<title>Counted</title><p>loaded</p>'); return; }
+  if (req.url === '/posted') { loads.posted++; res.end('<title>Posted</title><p>thanks</p>'); return; }
+  res.end(pages[req.url] || '<title>Frame</title>');
+});
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
@@ -123,9 +131,55 @@ try {
   assert.equal(await c.cdp.evaluate(c.activeTabId, 'innerWidth'), 1000, 'A late phone request after hand back is refused.');
   // Even if Chrome is left on a phone page, the agent's next action restores desktop first.
   await c.cdp.send('Emulation.setDeviceMetricsOverride', {width: 390, height: 700, deviceScaleFactor: 2, mobile: true}, c.cdp.tabs.get(c.activeTabId));
-  c.appliedViewport = 'mobile';
+  c.appliedViewports.set(c.activeTabId, 'mobile');
   await call('viewer_snapshot');
   assert.equal(await c.cdp.evaluate(c.activeTabId, 'innerWidth'), 1000);
+
+  // A phone in control gets the phone version of sites: Android identity (client hints too) and touch,
+  // the page in front reloaded once to switch; hand back restores desktop.
+  await c.navigate(base + '/count');
+  const desktopTouch = await c.cdp.evaluate(c.activeTabId, 'navigator.maxTouchPoints');
+  await c.takeControl();
+  const before = loads.count;
+  await c.setViewport('mobile', {width: 392, height: 451});
+  await new Promise(r => setTimeout(r, 400));
+  assert.match(await c.cdp.evaluate(c.activeTabId, 'navigator.userAgent'), /Android.*Mobile/);
+  assert.equal(await c.cdp.evaluate(c.activeTabId, 'navigator.userAgentData && navigator.userAgentData.mobile'), true);
+  assert.equal(await c.cdp.evaluate(c.activeTabId, 'navigator.maxTouchPoints'), 5);
+  assert.equal(loads.count, before + 1, 'the page in front is reloaded once so it serves its phone layout');
+  await c.setViewport('mobile', {width: 392, height: 460});
+  assert.equal(loads.count, before + 1, 'a resize does not reload again');
+  // Taps land where the finger is, even on a desktop page that Chrome zooms out to fit the phone.
+  await c.navigate(base + '/grid');
+  await new Promise(r => setTimeout(r, 200));
+  const grid = await c.cdp.evaluate(c.activeTabId, '({scale: visualViewport.scale, dpr: devicePixelRatio, at: [...document.querySelectorAll("button")].map(b => { const r = b.getBoundingClientRect(); return {x: (r.left + r.width / 2 - visualViewport.offsetLeft) * visualViewport.scale * devicePixelRatio, y: (r.top + r.height / 2 - visualViewport.offsetTop) * visualViewport.scale * devicePixelRatio}; })})');
+  assert.ok(grid.scale < 0.6, 'a desktop-only page is zoomed out at phone size: ' + grid.scale);
+  const frame = {fw: 392 * grid.dpr, fh: 451 * grid.dpr};
+  const tap = async (p, extra) => { await c.cdp.evaluate(c.activeTabId, 'window.__hit = null'); for (const event of ['pressed', 'released']) await c._onMessage(Buffer.from(JSON.stringify({type: 'mouse', event, x: p.x, y: p.y, button: 'left', clickCount: 1, modifiers: 0, ...extra}))); return c.cdp.evaluate(c.activeTabId, 'window.__hit'); };
+  const visible = grid.at.map((p, i) => [p, i]).filter(([p]) => p.x < frame.fw && p.y < frame.fh);
+  assert.ok(visible.length >= 4);
+  for (const [p, i] of visible) assert.equal(await tap(p, frame), i, 'tap with the frame size lands on button ' + i);
+  for (const [p, i] of visible) assert.equal(await tap(p, {}), i, 'a client without the frame size lands on button ' + i + ' too');
+  // A tab opened while the phone has control gets the phone page.
+  await c.tab({action: 'open', url: base + '/grid'});
+  await c._tick();
+  assert.match(await c.cdp.evaluate(c.activeTabId, 'navigator.userAgent'), /Android/);
+  await c.handBack();
+  for (const tab of (await c.listTabs()).tabs) {
+    await c.tab({action: 'switch', tabId: tab.id});
+    assert.doesNotMatch(await c.cdp.evaluate(c.activeTabId, 'navigator.userAgent'), /Android|Mobile/, 'hand back restores desktop on every tab');
+    assert.equal(await c.cdp.evaluate(c.activeTabId, 'navigator.maxTouchPoints'), desktopTouch, 'touch emulation is off again');
+  }
+  // The result of a form submission is never reloaded behind the user's back (it could resend it).
+  await c.navigate(base + '/form');
+  await c.click({x: 30, y: 15});
+  await new Promise(r => setTimeout(r, 400));
+  assert.equal(loads.posted, 1);
+  await c.takeControl();
+  await c.setViewport('mobile', {width: 392, height: 451});
+  await new Promise(r => setTimeout(r, 400));
+  assert.equal(loads.posted, 1, 'a form result is not reloaded');
+  await c.handBack();
 
   // While a Work task runs, the user must take control before driving.
   c.agentActive = () => true;
