@@ -1,4 +1,4 @@
-import {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,systemPreferences,powerMonitor,session as electronSession,safeStorage,Notification} from 'electron';
+import {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,systemPreferences,powerMonitor,session as electronSession,safeStorage,Notification,net} from 'electron';
 import WebSocket from 'ws';
 import {hostname} from 'node:os';
 import {randomBytes} from 'node:crypto';
@@ -12,6 +12,7 @@ import {createBridgeService} from './service.js';
 import {DesktopBridgeClient} from './client.js';
 import {DesktopAgent} from './agent.js';
 import {SeekLink} from './link.js';
+import {linkOptions} from './net.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const inputSmoke=process.argv.includes('--smoke-input');
@@ -100,6 +101,8 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   // Pairing with Seek (Settings › Computers) and requests that arrive over the link.
   const keyStore=safeStorage.isEncryptionAvailable()?{encrypt:s=>safeStorage.encryptString(s).toString('base64'),decrypt:s=>safeStorage.decryptString(Buffer.from(s,'base64'))}:{encrypt:s=>s,decrypt:s=>s};
   link=new SeekLink({file:join(app.getPath('userData'),'seek-link.json'),...keyStore,WebSocketImpl:WebSocket,
+    // Pairing uses Chromium's network stack; the link uses the same proxy and the system's certificates.
+    fetchImpl:(url,options)=>net.fetch(url,options),prepare:url=>linkOptions(url,{resolveProxy:u=>electronSession.defaultSession.resolveProxy(u)}),
     info:()=>({name:hostname(),os:process.platform,arch:process.arch,version:app.getVersion()}),
     localRequest:async(method,path,body)=>{const r=await fetch(status().endpoint+path,{method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000)});return {status:r.status,body:await r.json()};},
     grant:(task,title)=>grantTask(task,title),
@@ -149,6 +152,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
         if(process.platform==='win32')selectedWindowId=fixture.getNativeWindowHandle().readBigUInt64LE().toString();
         let observed,lastError=null;
         for(let attempt=0;attempt<25;attempt++){
+          if(process.platform==='linux'&&!fixture.isFocused())fixture.focus();
           try{observed=await capture();lastError=null;if(observed.title==='Seek Bridge Fixture'&&observed.elements.some(e=>e.canFill))break;}catch(e){lastError=e.message;}
           await new Promise(resolve=>setTimeout(resolve,300));
         }

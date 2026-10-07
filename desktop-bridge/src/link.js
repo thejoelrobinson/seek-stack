@@ -19,8 +19,8 @@ export function normalizeServer(input){
 const CODE=/^[A-Z2-9]{4}-?[A-Z2-9]{4}$/;
 
 export class SeekLink{
-  constructor({file,encrypt=s=>s,decrypt=s=>s,WebSocketImpl,fetchImpl=globalThis.fetch,info,localRequest,grant,onChange=()=>{},log=()=>{},setTimer=setTimeout,clearTimer=clearTimeout}){
-    Object.assign(this,{file,encrypt,decrypt,WebSocketImpl,fetchImpl,info,localRequest,grantLocal:grant,onChange,log,setTimer,clearTimer});
+  constructor({file,encrypt=s=>s,decrypt=s=>s,WebSocketImpl,fetchImpl=globalThis.fetch,prepare=async()=>({}),info,localRequest,grant,onChange=()=>{},log=()=>{},setTimer=setTimeout,clearTimer=clearTimeout}){
+    Object.assign(this,{file,encrypt,decrypt,WebSocketImpl,fetchImpl,prepare,info,localRequest,grantLocal:grant,onChange,log,setTimer,clearTimer});
     this.config=null;this.ws=null;this.online=false;this.asks=new Map();this.backoff=1000;this.lastError=null;this.stopped=false;
   }
   async load(){try{this.config=JSON.parse(await readFile(this.file,'utf8'));}catch{this.config=null;}if(this.config?.deviceId)this.connect();this.changed();return this.status();}
@@ -41,10 +41,19 @@ export class SeekLink{
   async unpair(){this.stopped=true;this.close();this.config=null;this.asks.clear();await rm(this.file,{force:true});this.changed();return this.status();}
   async setRemoteGrant(value){if(!this.config)throw Error('Pair with Seek first');this.config.remoteGrant=!!value;await this.save();this.send({type:'hello',...this.info(),remoteGrant:this.config.remoteGrant});this.changed();return this.status();}
   connect(){
-    if(!this.config?.deviceId||this.stopped||this.ws)return;
+    if(!this.config?.deviceId||this.stopped||this.ws||this.connecting)return;
     let secret;try{secret=this.decrypt(this.config.secret);}catch{this.lastError='The saved Seek key could not be read. Pair again.';this.changed();return;}
     const url=this.config.server.replace(/^http/,'ws')+'/work/desktop/link';
-    const ws=new this.WebSocketImpl(url,{headers:{Authorization:`Bearer ${this.config.deviceId}.${secret}`},handshakeTimeout:15000,maxPayload:256*1024});
+    // Network options (system proxy, system certificates) are resolved per connection.
+    this.connecting=true;
+    void Promise.resolve(this.prepare(url)).catch(e=>{this.log('network setup: '+e.message);return {};}).then(extra=>{
+      this.connecting=false;
+      if(this.ws||this.stopped||!this.config)return;
+      this.open(url,secret,extra||{});
+    });
+  }
+  open(url,secret,extra){
+    const ws=new this.WebSocketImpl(url,{...extra,headers:{Authorization:`Bearer ${this.config.deviceId}.${secret}`},handshakeTimeout:15000,maxPayload:256*1024});
     this.ws=ws;
     ws.on('open',()=>{this.online=true;this.backoff=1000;this.lastError=null;this.send({type:'hello',...this.info(),name:this.config?.name||this.info().name,remoteGrant:!!this.config?.remoteGrant});this.changed();});
     ws.on('message',raw=>{let msg;try{msg=JSON.parse(String(raw));}catch{return;}void this.handle(msg).catch(e=>this.log('link message failed: '+e.message));});

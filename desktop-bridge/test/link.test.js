@@ -27,14 +27,14 @@ test('pairing stores an encrypted key and connects with it',async()=>{
     const s=await link.pair({server:'seek.example.com',code:'abcd-efgh',name:'Studio',remoteGrant:true});
     assert.equal(calls[0].url,'https://seek.example.com/work/desktop/pair');assert.equal(calls[0].body.code,'ABCDEFGH');assert.equal(calls[0].body.os,'darwin');assert.equal(calls[0].body.name,'Studio','the chosen name is sent, not the host name');
     const saved=JSON.parse(await readFile(join(dir,'link.json'),'utf8'));assert.equal(saved.secret,'enc:'+secret);assert.equal(saved.deviceId,'dev-1');
-    const ws=FakeSocket.last;assert.equal(ws.url,'wss://seek.example.com/work/desktop/link');assert.equal(ws.opts.headers.Authorization,`Bearer dev-1.${secret}`);
+    await new Promise(r=>setImmediate(r));const ws=FakeSocket.last;assert.equal(ws.url,'wss://seek.example.com/work/desktop/link');assert.equal(ws.opts.headers.Authorization,`Bearer dev-1.${secret}`);
     ws.open();assert.equal(ws.sent[0].type,'hello');assert.equal(ws.sent[0].remoteGrant,true);assert.equal(s.paired,true);assert.equal(link.status().online,true);
   }finally{link.close();await done();}
 });
 test('relays only the bridge API, and phone approval needs the opt-in',async()=>{
   const {link,grants,done}=await setup();
   try{
-    await link.pair({server:'https://seek.example.com',code:'ABCDEFGH',remoteGrant:false});const ws=FakeSocket.last;ws.open();
+    await link.pair({server:'https://seek.example.com',code:'ABCDEFGH',remoteGrant:false});await new Promise(r=>setImmediate(r));const ws=FakeSocket.last;ws.open();
     ws.receive({type:'request',id:1,method:'POST',path:'/observe',body:{sessionId:'s',epoch:1}});await new Promise(r=>setImmediate(r));
     assert.deepEqual(ws.sent.at(-1),{type:'response',id:1,status:200,body:{method:'POST',path:'/observe',body:{sessionId:'s',epoch:1}}});
     ws.receive({type:'request',id:2,method:'POST',path:'/grant',body:{}});await new Promise(r=>setImmediate(r));assert.equal(ws.sent.at(-1).status,404);
@@ -48,14 +48,14 @@ test('relays only the bridge API, and phone approval needs the opt-in',async()=>
 test('requests show locally; Allow grants, Not now declines; removal stops reconnecting',async()=>{
   const {link,grants,timers,done}=await setup();
   try{
-    await link.pair({server:'https://seek.example.com',code:'ABCDEFGH'});const ws=FakeSocket.last;ws.open();
+    await link.pair({server:'https://seek.example.com',code:'ABCDEFGH'});await new Promise(r=>setImmediate(r));const ws=FakeSocket.last;ws.open();
     ws.receive({type:'ask',taskId:'t9',title:'Sort my downloads folder'});await new Promise(r=>setImmediate(r));
     assert.equal(link.status().requests[0].title,'Sort my downloads folder');
     await link.answer('t9',true);assert.deepEqual(grants,[['t9','Sort my downloads folder']]);assert.deepEqual(ws.sent.at(-1),{type:'answer',taskId:'t9',allowed:true});
     ws.receive({type:'ask',taskId:'t10',title:'x'});await new Promise(r=>setImmediate(r));await link.answer('t10',false);assert.equal(grants.length,1);
     await assert.rejects(link.answer('t10',true),/no longer pending/);
     ws.close(1006);assert.equal(timers.at(-1),1000,'reconnects with backoff');
-    link.ws=null;link.connect();FakeSocket.last.close(4401);assert.equal(link.status().lastError,'This computer was removed from Seek. Pair it again.');
+    link.ws=null;link.stopped=false;link.connect();await new Promise(r=>setImmediate(r));FakeSocket.last.close(4401);assert.equal(link.status().lastError,'This computer was removed from Seek. Pair it again.');
     const before=timers.length;assert.equal(timers.length,before);
   }finally{link.close();await done();}
 });
