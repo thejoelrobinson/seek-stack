@@ -143,14 +143,16 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
       if(inputSmoke){
         app.setAccessibilitySupportEnabled(true);
         const fixture=new BrowserWindow({width:650,height:450,show:true,...opts});protect(fixture);
-        await fixture.loadFile(join(root,'fixture.html'));fixture.showInactive();
+        await fixture.loadFile(join(root,'fixture.html'));
+        // Windows targets the fixture window directly; the Linux reader observes the focused window.
+        if(process.platform==='linux'){fixture.show();fixture.focus();}else fixture.showInactive();
         if(process.platform==='win32')selectedWindowId=fixture.getNativeWindowHandle().readBigUInt64LE().toString();
-        let observed;
-        for(let attempt=0;attempt<8;attempt++){
-          try{observed=await capture();if(observed.title==='Seek Bridge Fixture'&&observed.elements.some(e=>e.canFill))break;}catch{}
+        let observed,lastError=null;
+        for(let attempt=0;attempt<25;attempt++){
+          try{observed=await capture();lastError=null;if(observed.title==='Seek Bridge Fixture'&&observed.elements.some(e=>e.canFill))break;}catch(e){lastError=e.message;}
           await new Promise(resolve=>setTimeout(resolve,300));
         }
-        if(observed?.title!=='Seek Bridge Fixture'||!observed.elements.some(e=>e.canFill))throw Error('Own accessibility fixture is unavailable: '+JSON.stringify({title:observed?.title,count:observed?.elements?.length,controls:observed?.title==='Seek Bridge Fixture'?observed.elements.map(e=>({role:e.role,name:e.name,canFill:e.canFill})):undefined}));
+        if(observed?.title!=='Seek Bridge Fixture'||!observed.elements.some(e=>e.canFill))throw Error('Own accessibility fixture is unavailable: '+JSON.stringify({error:lastError,title:observed?.title,count:observed?.elements?.length,controls:observed?.title==='Seek Bridge Fixture'?observed.elements.map(e=>({role:e.role,name:e.name,canFill:e.canFill})):undefined}));
         const taskId='smoke-'+process.pid;control.grant(taskId);
         const agent=new DesktopAgent({taskId,client:new DesktopBridgeClient({endpoint:status().endpoint,token})});
         try{

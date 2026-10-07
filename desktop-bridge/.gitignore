@@ -4,3 +4,4 @@ smoke-output/
 __pycache__/
 dist/
 agent-connection.json
+dist-local/
