@@ -45,6 +45,7 @@ jobs:
         run: node -e "if(process.env.GITHUB_REF_NAME !== 'bridge-v'+require('./package.json').version)process.exit(1)"
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y xvfb xdotool python3-gi gir1.2-atspi-2.0 at-spi2-core dbus-x11 openbox
       - run: npm run build:dir
       - name: Configure packaged Linux sandbox on the runner
