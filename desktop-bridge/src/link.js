@@ -32,7 +32,7 @@ export class SeekLink{
     const origin=normalizeServer(server),pairing=String(code||'').trim().toUpperCase();
     if(!CODE.test(pairing))throw Error('Enter the 8-character code shown in Seek');
     const label=String(name||'').trim().slice(0,60)||this.info().name;
-    const res=await this.fetchImpl(origin+'/work/desktop/pair',{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:pairing.replace('-',''),name:label,remoteGrant:!!remoteGrant,...this.info()}),signal:AbortSignal.timeout(15000)});
+    const res=await this.fetchImpl(origin+'/work/desktop/pair',{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({...this.info(),code:pairing.replace('-',''),name:label,remoteGrant:!!remoteGrant}),signal:AbortSignal.timeout(15000)});
     let data={};try{data=await res.json();}catch{}
     if(!res.ok||!data.deviceId||!/^[a-f0-9]{64}$/.test(data.secret||''))throw Error(data.error||`Seek refused the pairing (${res.status})`);
     this.close();this.config={server:origin,deviceId:data.deviceId,secret:this.encrypt(data.secret),name:label,remoteGrant:!!remoteGrant,pairedAt:Date.now()};
@@ -46,7 +46,7 @@ export class SeekLink{
     const url=this.config.server.replace(/^http/,'ws')+'/work/desktop/link';
     const ws=new this.WebSocketImpl(url,{headers:{Authorization:`Bearer ${this.config.deviceId}.${secret}`},handshakeTimeout:15000,maxPayload:256*1024});
     this.ws=ws;
-    ws.on('open',()=>{this.online=true;this.backoff=1000;this.lastError=null;this.send({type:'hello',...this.info(),remoteGrant:!!this.config?.remoteGrant});this.changed();});
+    ws.on('open',()=>{this.online=true;this.backoff=1000;this.lastError=null;this.send({type:'hello',...this.info(),name:this.config?.name||this.info().name,remoteGrant:!!this.config?.remoteGrant});this.changed();});
     ws.on('message',raw=>{let msg;try{msg=JSON.parse(String(raw));}catch{return;}void this.handle(msg).catch(e=>this.log('link message failed: '+e.message));});
     ws.on('unexpected-response',(_req,res)=>{if(res.statusCode===401||res.statusCode===403){this.lastError='This computer was removed from Seek. Pair it again.';this.stopped=true;}});
     ws.on('error',e=>{this.lastError=this.lastError||`Can't reach Seek: ${e.message}`;});

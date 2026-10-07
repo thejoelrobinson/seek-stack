@@ -25,7 +25,7 @@ test('pairing stores an encrypted key and connects with it',async()=>{
   try{
     await assert.rejects(link.pair({server:'seek.example.com',code:'nope'}),/8-character/);
     const s=await link.pair({server:'seek.example.com',code:'abcd-efgh',name:'Studio',remoteGrant:true});
-    assert.equal(calls[0].url,'https://seek.example.com/work/desktop/pair');assert.equal(calls[0].body.code,'ABCDEFGH');assert.equal(calls[0].body.os,'darwin');
+    assert.equal(calls[0].url,'https://seek.example.com/work/desktop/pair');assert.equal(calls[0].body.code,'ABCDEFGH');assert.equal(calls[0].body.os,'darwin');assert.equal(calls[0].body.name,'Studio','the chosen name is sent, not the host name');
     const saved=JSON.parse(await readFile(join(dir,'link.json'),'utf8'));assert.equal(saved.secret,'enc:'+secret);assert.equal(saved.deviceId,'dev-1');
     const ws=FakeSocket.last;assert.equal(ws.url,'wss://seek.example.com/work/desktop/link');assert.equal(ws.opts.headers.Authorization,`Bearer dev-1.${secret}`);
     ws.open();assert.equal(ws.sent[0].type,'hello');assert.equal(ws.sent[0].remoteGrant,true);assert.equal(s.paired,true);assert.equal(link.status().online,true);
