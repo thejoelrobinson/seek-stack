@@ -22,6 +22,21 @@ class AccessibilityBridge:
             raise RuntimeError("Wayland control needs the desktop portal adapter")
         return self.xdo("getactivewindow")
 
+    def iface(self, target, name):
+        """An AT-SPI interface of a node. Current libatspi names the getters get_text(), get_action()…;
+        older versions only have get_text_iface()… Try both; None when the node lacks it."""
+        for method in ("get_%s_iface" % name, "get_%s" % name):
+            getter = getattr(target, method, None)
+            if getter is None:
+                continue
+            try:
+                value = getter()
+            except TypeError:
+                continue
+            if value is not None:
+                return value
+        return None
+
     def call(self, interface, method, obj, *args):
         klass = getattr(self.api, interface, None)
         function = getattr(klass, method, None) if klass is not None else None
@@ -31,7 +46,7 @@ class AccessibilityBridge:
         return (target.get_role_name(), target.get_name())
 
     def action_index(self, target):
-        action = target.get_action_iface()
+        action = self.iface(target, "action")
         if action:
             for index in range(self.call("Action", "get_n_actions", action)):
                 if self.call("Action", "get_action_name", action, index).lower() in ("click", "press", "activate"):
@@ -54,7 +69,7 @@ class AccessibilityBridge:
         target.clear_cache()
         states = target.get_state_set()
         password = target.get_role() == self.api.Role.PASSWORD_TEXT
-        component = target.get_component_iface()
+        component = self.iface(target, "component")
         if component and states.contains(self.api.StateType.SHOWING):
             rect = component.get_extents(self.api.CoordType.SCREEN)
             if rect.width > 0 and rect.height > 0:
@@ -66,10 +81,10 @@ class AccessibilityBridge:
                             focused=states.contains(self.api.StateType.FOCUSED), password=password,
                             depth=depth, canInvoke=self.action_index(target) is not None,
                             canFill=not password and states.contains(self.api.StateType.EDITABLE)
-                            and target.get_editable_text_iface() is not None)
+                            and self.iface(target, "editable_text") is not None)
                 if not password:
                     try:
-                        text = target.get_text_iface()
+                        text = self.iface(target, "text")
                         if text:
                             node["value"] = self.call("Text", "get_text", text, 0, min(self.call("Text", "get_character_count", text), 4096))
                     except Exception:
@@ -144,7 +159,7 @@ class AccessibilityBridge:
             try:
                 states = target.get_state_set()
                 names = [n for n in ("SHOWING", "VISIBLE", "ENABLED", "EDITABLE", "FOCUSABLE") if states.contains(getattr(self.api.StateType, n, n.lower()))]
-                component = target.get_component_iface()
+                component = self.iface(target, "component")
                 rect = component.get_extents(self.api.CoordType.SCREEN) if component else None
                 out.append(f"{depth}:{target.get_role_name()}:{(target.get_name() or '')[:30]!r}:{','.join(names)}:{(rect.width, rect.height) if rect else 'no-component'}:{target.get_child_count()}")
                 queue.extend((target.get_child_at_index(i), depth + 1) for i in range(min(target.get_child_count(), 6)))
@@ -168,7 +183,7 @@ class AccessibilityBridge:
                                       or not states.contains(self.api.StateType.FOCUSED)):
             raise RuntimeError("Keyboard focus changed")
         if "x" in command:
-            rect = target.get_component_iface().get_extents(self.api.CoordType.SCREEN)
+            rect = self.iface(target, "component").get_extents(self.api.CoordType.SCREEN)
             if abs(rect.x + rect.width / 2 - command["x"]) > 2 or abs(rect.y + rect.height / 2 - command["y"]) > 2:
                 raise RuntimeError("Target moved; observe again")
 
@@ -182,11 +197,11 @@ class AccessibilityBridge:
         target = self.targets[command["targetId"]][0]
         if kind == "invoke":
             index = self.action_index(target)
-            if index is None or not self.call("Action", "do_action", target.get_action_iface(), index):
+            if index is None or not self.call("Action", "do_action", self.iface(target, "action"), index):
                 raise RuntimeError("Control does not support activation")
             return dict(ok=True)
         if kind == "fill":
-            editable = target.get_editable_text_iface()
+            editable = self.iface(target, "editable_text")
             if not target.get_state_set().contains(self.api.StateType.EDITABLE) or not editable or not self.call("EditableText", "set_text_contents", editable, command["text"]):
                 raise RuntimeError("Control does not support replacing text")
             return dict(ok=True)
