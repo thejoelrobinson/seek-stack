@@ -44,7 +44,7 @@ async function capture(){
       if(process.platform!=='win32')return {...e,x:e.x-display.x,y:e.y-display.y};
       const top=screen.screenToDipPoint({x:Math.round(e.x),y:Math.round(e.y)}),bottom=screen.screenToDipPoint({x:Math.round(e.x+e.width),y:Math.round(e.y+e.height)});return {...e,x:top.x-display.x,y:top.y-display.y,width:bottom.x-top.x,height:bottom.y-top.y};
     });
-    return {display,windowId:view.windowId,title:view.title,elements,truncated:view.truncated,mode:'accessibility'};
+    return {display,windowId:view.windowId,title:view.title,elements,truncated:view.truncated,mode:'accessibility',...(view.diagnostic?{diagnostic:view.diagnostic}:{})};
   }
   throw Error('Structured desktop observations are not implemented on this OS yet; this model cannot use screenshots');
 }
@@ -152,7 +152,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
           try{observed=await capture();lastError=null;if(observed.title==='Seek Bridge Fixture'&&observed.elements.some(e=>e.canFill))break;}catch(e){lastError=e.message;}
           await new Promise(resolve=>setTimeout(resolve,300));
         }
-        if(observed?.title!=='Seek Bridge Fixture'||!observed.elements.some(e=>e.canFill))throw Error('Own accessibility fixture is unavailable: '+JSON.stringify({error:lastError,title:observed?.title,count:observed?.elements?.length,controls:observed?.title==='Seek Bridge Fixture'?observed.elements.map(e=>({role:e.role,name:e.name,canFill:e.canFill})):undefined}));
+        if(observed?.title!=='Seek Bridge Fixture'||!observed.elements.some(e=>e.canFill))throw Error('Own accessibility fixture is unavailable: '+JSON.stringify({error:lastError,diagnostic:observed?.diagnostic,title:observed?.title,count:observed?.elements?.length,controls:observed?.title==='Seek Bridge Fixture'?observed.elements.map(e=>({role:e.role,name:e.name,canFill:e.canFill})):undefined}));
         const taskId='smoke-'+process.pid;control.grant(taskId);
         const agent=new DesktopAgent({taskId,client:new DesktopBridgeClient({endpoint:status().endpoint,token})});
         try{

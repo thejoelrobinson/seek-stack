@@ -105,16 +105,37 @@ class AccessibilityBridge:
                         truncated = True
                         break
                     walk(target.get_child_at_index(index), depth + 1)
-            except Exception:
+            except Exception as error:
                 truncated = True
+                errors.append(repr(error)[:200])
 
+        errors = []
         walk(root, 0)
         if self.active_window() != window_id:
             self.targets = {}
             raise RuntimeError("Foreground window changed while observing")
         self.window_id = window_id
-        return dict(windowId=window_id, title=str(root.get_name() or "")[:512],
+        view = dict(windowId=window_id, title=str(root.get_name() or "")[:512],
                     elements=nodes, truncated=truncated)
+        if not nodes:
+            view["diagnostic"] = self.sample(root) + errors[:3]
+        return view
+
+    def sample(self, root):
+        """When nothing qualifies, report what was there: roles, states and sizes of the first nodes."""
+        out, queue = [], [(root, 0)]
+        while queue and len(out) < 14:
+            target, depth = queue.pop(0)
+            try:
+                states = target.get_state_set()
+                names = [n for n in ("SHOWING", "VISIBLE", "ENABLED", "EDITABLE", "FOCUSABLE") if states.contains(getattr(self.api.StateType, n, n.lower()))]
+                component = target.get_component_iface()
+                rect = component.get_extents(self.api.CoordType.SCREEN) if component else None
+                out.append(f"{depth}:{target.get_role_name()}:{(target.get_name() or '')[:30]!r}:{','.join(names)}:{(rect.width, rect.height) if rect else 'no-component'}:{target.get_child_count()}")
+                queue.extend((target.get_child_at_index(i), depth + 1) for i in range(min(target.get_child_count(), 6)))
+            except Exception as error:
+                out.append(f"{depth}:error {error!r}"[:120])
+        return out
 
     def validate(self, command):
         if command.get("windowId") != self.window_id or self.active_window() != self.window_id:
