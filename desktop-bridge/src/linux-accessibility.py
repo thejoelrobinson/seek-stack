@@ -81,7 +81,8 @@ class AccessibilityBridge:
                             focused=states.contains(self.api.StateType.FOCUSED), password=password,
                             depth=depth, canInvoke=self.action_index(target) is not None,
                             canFill=not password and states.contains(self.api.StateType.EDITABLE)
-                            and self.iface(target, "editable_text") is not None)
+                            and (self.iface(target, "editable_text") is not None
+                                 or (states.contains(self.api.StateType.FOCUSABLE) and component is not None)))
                 if not password:
                     try:
                         text = self.iface(target, "text")
@@ -207,9 +208,30 @@ class AccessibilityBridge:
                 raise RuntimeError("Control does not support activation")
             return dict(ok=True)
         if kind == "fill":
-            editable = self.iface(target, "editable_text")
-            if not target.get_state_set().contains(self.api.StateType.EDITABLE) or not editable or not self.call("EditableText", "set_text_contents", editable, command["text"]):
+            states = target.get_state_set()
+            if not states.contains(self.api.StateType.EDITABLE):
                 raise RuntimeError("Control does not support replacing text")
+            editable = self.iface(target, "editable_text")
+            if editable and self.call("EditableText", "set_text_contents", editable, command["text"]):
+                return dict(ok=True)
+            # Chromium-based apps expose editable fields without EditableText: focus the field,
+            # select its contents and type the replacement, then read it back.
+            component = self.iface(target, "component")
+            if not component or not self.call("Component", "grab_focus", component):
+                raise RuntimeError("Could not focus the field to replace its text")
+            time.sleep(0.05)
+            if self.active_window() != self.window_id:
+                raise RuntimeError("Foreground window changed; observe again")
+            self.xdo("key", "--clearmodifiers", "ctrl+a")
+            if command["text"]:
+                self.xdo("type", "--clearmodifiers", "--delay", "0", "--", command["text"])
+            else:
+                self.xdo("key", "--clearmodifiers", "BackSpace")
+            text = self.iface(target, "text")
+            if text is not None:
+                value = self.call("Text", "get_text", text, 0, min(self.call("Text", "get_character_count", text), 4096))
+                if value != command["text"]:
+                    raise RuntimeError("The field did not take the new text")
             return dict(ok=True)
         if kind in ("move", "click", "scroll"):
             self.xdo("mousemove", "--sync", round(command["x"]), round(command["y"]))

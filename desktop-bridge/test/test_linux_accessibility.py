@@ -46,6 +46,32 @@ class LinuxReaderTests(unittest.TestCase):
             return types.SimpleNamespace(stdout="42" if args[1] == "getwindowpid" else "123")
         return bridge.AccessibilityBridge(api, run), root
 
+    def test_fill_types_into_fields_without_editable_text(self):
+        typed = []
+        class Field(Target):
+            def __init__(self):
+                super().__init__("Name", role="entry", states=("enabled", "showing", "editable", "focusable"))
+                self.value = "old"
+            def grab_focus(self): return True
+            def get_character_count(self): return len(self.value)
+            def get_text(self, start, end): return self.value[start:end]
+        field = Field()
+        root = Target("Form", states=("active", "enabled", "showing"), children=(field,))
+        desktop = Target("Desktop", children=(Target("App", children=(root,)),))
+        api = types.SimpleNamespace(set_timeout=lambda *_: None, get_desktop=lambda _: desktop,
+                                    StateType=types.SimpleNamespace(ACTIVE="active", SHOWING="showing", ENABLED="enabled", FOCUSED="focused", EDITABLE="editable", FOCUSABLE="focusable"),
+                                    Role=types.SimpleNamespace(PASSWORD_TEXT="password"), CoordType=types.SimpleNamespace(SCREEN=0))
+        def run(args, **kwargs):
+            if args[1] == "type":
+                typed.append(args[-1]); field.value = args[-1]
+            return types.SimpleNamespace(stdout="42" if args[1] == "getwindowpid" else "123")
+        reader = bridge.AccessibilityBridge(api, run)
+        view = reader.inspect()
+        entry = next(e for e in view["elements"] if e["role"] == "entry")
+        self.assertTrue(entry["canFill"])
+        reader.execute(dict(kind="fill", windowId="123", targetId=entry["id"], text="Qwen"))
+        self.assertEqual(typed, ["Qwen"])
+
     def test_focused_frame_found_without_active_state(self):
         frame = Target("Seek Bridge Fixture", states=("enabled", "showing"), children=(Target("Field"),))
         other = Target("Other window", states=("enabled", "showing"))
