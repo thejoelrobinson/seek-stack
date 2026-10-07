@@ -44,7 +44,8 @@ export class SecurityLog {
   limit=Math.min(500,Math.max(1,Number(limit)||100));
   const lines=[];for(const name of [this.file+'.1',this.file]){try{lines.push(...(await readFile(name,'utf8')).split('\n'));}catch{}}
   const events=[];for(const line of lines){if(!line.trim())continue;try{const e=JSON.parse(line);if(Number.isFinite(e.at)&&typeof e.type==='string')events.push({...e,label:securityLabel(e.type)});}catch{}}
-  events.sort((a,b)=>b.at-a.at);
+  // Newest first; events in the same millisecond keep file order (later lines are newer).
+  events.reverse().sort((a,b)=>b.at-a.at);
   const since=Date.now()-86400000;
   return {events:events.slice(0,limit),failedSignIns24h:events.filter(e=>e.at>=since&&['login.failed','login.rate_limited'].includes(e.type)).length};
  }
