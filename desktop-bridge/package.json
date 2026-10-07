@@ -27,5 +27,6 @@
   "license": "UNLICENSED",
   "dependencies": {
     "ws": "^8.22.0"
-  }
+  },
+  "homepage": "https://github.com/thejoelrobinson/seek-stack"
 }
