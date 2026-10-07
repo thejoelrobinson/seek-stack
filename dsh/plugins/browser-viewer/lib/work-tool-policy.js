@@ -3,7 +3,7 @@
 const WRITE=/(?:^|[_-])(?:create|update|delete|remove|send|post|put|patch|publish|invite|add|edit|set|upsert|archive|submit|execute|transfer|trade)(?:[_-]|$)/i;
 const READ=/^(?:[a-z0-9]+[_-])?(?:get|list|search|find|fetch|retrieve|read|query|lookup|describe|inspect|check|download|browse|preview)(?:[_-]|$)/i;
 const normalized=value=>String(value).replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase();
-const CREDENTIAL=/(?:^|[\\/])(?:\.secret|config\.dpapi|key\.dpapi|partner-login\.json|auth-sessions\.json)(?:$|[\\/])/i;
+const CREDENTIAL=/(?:^|[\\/])(?:\.secret|config\.dpapi|key\.dpapi|partner-login\.json|auth-sessions\.json|caldav-devices\.json|calendar\.sqlite|agent-connection\.json|desktop-devices\.json|seek-link\.json)(?:$|[\\/])/i;
 const FILE_TOOLS=new Set(['read','write','edit','read_image','read_file','write_file','edit_file','apply_patch']);
 export function workToolDenial(execution,task,{definition,child=false}={}){
   if(!task)return undefined;

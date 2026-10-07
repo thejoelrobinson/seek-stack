@@ -5,7 +5,10 @@ import {gzipSync,brotliCompressSync} from 'node:zlib';
 export const WORK_FILES={'/work':'work.html','/work/':'work.html','/work/app.js':'work-client.js','/work/runtime.js':'work-runtime.js','/work/style.css':'work.css','/work/finance.js':'work-finance-client.js','/work/finance-overview.js':'work-finance-overview.js','/work/finance.css':'work-finance.css','/work/finance-v2.css':'work-finance-v2.css','/work/images.js':'work-images-client.js','/work/images.css':'work-images.css','/work/browser-client.js':'client.js','/work/browser.js':'work-browser.js','/work/buddy.js':'work-buddy.js','/work/markdown.js':'work-markdown.js','/work/buddy.css':'work-buddy.css','/work/plush.png':'work-buddy-plush.png','/work/plush.webp':'work-buddy-plush.webp','/work/dreaming.js':'work-dreaming-client.js','/work/dreaming.css':'work-dreaming.css'};
 Object.assign(WORK_FILES,{'/work/models.js':'work-model-client.js','/work/models.css':'work-model.css'});
 Object.assign(WORK_FILES,{'/work/image-preview.js':'work-image-preview.js'});
-Object.assign(WORK_FILES,{'/work/product.js':'work-product.js'});
+Object.assign(WORK_FILES,{'/work/product.js':'work-product.js','/work/editorial.js':'work-editorial.js','/work/editorial.css':'work-editorial.css','/work/theme.js':'work-theme.js','/work/colors.css':'work-color-system.css','/work/system.css':'work-system.css'});
+Object.assign(WORK_FILES,{'/work/calendar.js':'work-calendar-client.js','/work/calendar.css':'work-calendar.css','/work/ical.js':'work-ical.js'});
+Object.assign(WORK_FILES,{'/work/desktop.js':'work-desktop-client.js','/work/desktop.css':'work-desktop.css'});
+Object.assign(WORK_FILES,{'/work/mirror.js':'work-mirror.js','/work/mirror-shape.js':'mirror-shape.js'});
 Object.assign(WORK_FILES,{'/work/growth.js':'work-growth-client.js','/work/growth.css':'work-growth.css'});
 export class WorkAssets {
   async init(){

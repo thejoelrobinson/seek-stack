@@ -15,7 +15,9 @@ const LABELS={
  'approval.decided':'Action decision','always_allow.revoked':'Always-allow permission removed','secret.blocked':'Password kept out of chat','secret.sent_anyway':'Password-like text sent after warning',
  'vault.login_saved':'Login saved to vault','vault.unlocked':'Vault unlocked','vault.locked':'Vault locked','site.signed_out':'Signed out of a site',
  'export.downloaded':'Workspace export downloaded','backup.recovery_key_exported':'Backup recovery key exported','apps.configured':'Connected-app credentials changed','apps.disconnected':'Connected account removed',
- 'finance.configured':'Finance credentials changed','finance.disconnected':'Finance connection removed','card.filled':'Saved card entered at checkout','push.subscribed':'Notifications turned on for a device','push.unsubscribed':'Notifications turned off for a device'
+ 'finance.configured':'Finance credentials changed','finance.disconnected':'Finance connection removed','card.filled':'Saved card entered at checkout','push.subscribed':'Notifications turned on for a device','push.unsubscribed':'Notifications turned off for a device',
+ 'caldav.failed':'Calendar sign-in failed','caldav.rate_limited':'Calendar sign-in blocked after repeated failures',
+ 'desktop.paired':'Computer paired','desktop.pair_failed':'Computer pairing code rejected','desktop.pair_rate_limited':'Computer pairing blocked after repeated failures','desktop.link_refused':'Computer connection refused'
 };
 export const securityLabel=type=>LABELS[type]||type;
 

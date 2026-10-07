@@ -16,6 +16,9 @@ import os from "node:os";
 import path from "node:path";
 
 const CDP_CALL_TIMEOUT_MS = 30000;
+const METRICS_WAIT_MS = 3000, METRICS_STALLED = Symbol('metrics stalled');
+const CAPTURE_WAIT_MS = 800;
+export const CAPTURE_STALLED = 'capture stalled';
 const CHROME_START_TIMEOUT_MS = 25000;
 const LOAD_TIMEOUT_MS = 20000;
 
@@ -57,6 +60,9 @@ export class CdpBrowser {
     this.endpoint = null;
     // Attached page targets: tabId -> sessionId
     this.tabs = new Map();
+    this.visualCalls = new Map();
+    this.resourceResponses = new Map();
+    this.fontBodies = new Map();this.fontBytes=0;
   }
 
   get alive() {
@@ -128,6 +134,37 @@ export class CdpBrowser {
   }
 
   send(method, params, sessionId) {
+    // Capture temporarily overrides viewport metrics. Related targets can share a
+    // renderer; serialize captures and metric writes across this browser connection.
+    if(['Page.captureScreenshot','Emulation.setDeviceMetricsOverride','Emulation.clearDeviceMetricsOverride'].includes(method)){
+      const key='browser',previous=this.visualCalls.get(key)||Promise.resolve(),call=previous.catch(()=>{}).then(()=>method==='Emulation.setDeviceMetricsOverride'?this._metrics(params,sessionId):method==='Page.captureScreenshot'?this._capture(params,sessionId):this._send(method,params,sessionId));this.visualCalls.set(key,call);
+      const done=()=>{if(this.visualCalls.get(key)===call)this.visualCalls.delete(key);};void call.then(done,done);return call;
+    }
+    return this._send(method,params,sessionId);
+  }
+
+  // Chrome sometimes leaves a metrics override on a tab that is just navigating unanswered until the
+  // 30 s call timeout, and every capture and action queues behind it. Wait briefly, ask once more,
+  // then carry on: the override still applies when Chrome gets to it.
+  async _metrics(params, sessionId) {
+    for (let attempt = 0; ; attempt++) {
+      const call = this._send('Emulation.setDeviceMetricsOverride', params, sessionId); call.catch(() => {});
+      const result = await Promise.race([call, new Promise(r => setTimeout(() => r(METRICS_STALLED), METRICS_WAIT_MS))]);
+      if (result !== METRICS_STALLED) return result;
+      if (attempt) return {};
+    }
+  }
+
+  // A page going into the back/forward cache (or otherwise not drawing) can leave a capture unanswered for
+  // seconds; skip that picture instead of holding every later capture and resize behind it.
+  async _capture(params, sessionId) {
+    const call = this._send('Page.captureScreenshot', params, sessionId); call.catch(() => {});
+    const result = await Promise.race([call, new Promise(r => setTimeout(() => r(METRICS_STALLED), CAPTURE_WAIT_MS))]);
+    if (result === METRICS_STALLED) throw new Error(CAPTURE_STALLED);
+    return result;
+  }
+
+  _send(method, params, sessionId) {
     if (!this.alive) return Promise.reject(new Error("browser session is not alive" + (this.lostReason ? " (" + this.lostReason + ")" : "")));
     const id = this.nextId++;
     const frame = { id, method, params: params ?? {} };
@@ -146,6 +183,8 @@ export class CdpBrowser {
   onMessage(data) {
     let msg;
     try { msg = JSON.parse(data); } catch { return; }
+    if(msg.method==='Network.responseReceived'&&['Image','Font'].includes(msg.params?.type)&&msg.params.response?.status===200){const p=msg.params,key=msg.sessionId+'\n'+p.frameId+'\n'+p.response.url;this.resourceResponses.delete(key);this.resourceResponses.set(key,{requestId:p.requestId,mimeType:p.response.mimeType,sessionId:msg.sessionId,kind:p.type});while(this.resourceResponses.size>500)this.resourceResponses.delete(this.resourceResponses.keys().next().value);}
+    if(msg.method==='Network.loadingFinished'){const entry=[...this.resourceResponses].find(([,r])=>r.kind==='Font'&&r.sessionId===msg.sessionId&&r.requestId===msg.params.requestId);if(entry)void this.cacheFont(...entry);}
     if (msg.id !== undefined && this.pending.has(msg.id)) {
       const p = this.pending.get(msg.id);
       this.pending.delete(msg.id);
@@ -156,6 +195,8 @@ export class CdpBrowser {
       if (set) for (const fn of [...set]) { try { fn(msg.params); } catch {} }
     }
   }
+
+  async cacheFont(key,row){try{if(!/^(?:font\/|application\/(?:font-woff2?|vnd.ms-fontobject|x-font-ttf|x-font-opentype)$)/i.test(row.mimeType))return;const result=await this._send('Network.getResponseBody',{requestId:row.requestId},row.sessionId),data=Buffer.from(result.body,result.base64Encoded?'base64':'utf8');if(!this.alive||data.length>10*1024*1024)return;const previous=this.fontBodies.get(key);if(previous)this.fontBytes-=previous.data.length;this.fontBodies.delete(key);this.fontBodies.set(key,{data,type:row.mimeType,sessionId:row.sessionId});this.fontBytes+=data.length;while(this.fontBytes>10*1024*1024){const [id,r]=this.fontBodies.entries().next().value;this.fontBytes-=r.data.length;this.fontBodies.delete(id);}}catch{}}
 
   /** Subscribe to a CDP event for a given session (or browser level). */
   onEvent(sessionId, method, fn) {
@@ -173,8 +214,12 @@ export class CdpBrowser {
     this.ws = null;
     for (const p of this.pending.values()) p.reject(new Error("browser session lost: " + reason));
     this.pending.clear();
+    this.visualCalls.clear();
+    this.resourceResponses.clear();
+    this.fontBodies.clear();this.fontBytes=0;
     if (ws) { try { ws.onclose = null; ws.onerror = null; ws.close(); } catch {} }
     if (this.child) { try { this.child.kill(); } catch {} this.child = null; }
+    try{this.onDrop?.(reason);}catch{}
   }
 
   async close() {
@@ -201,7 +246,13 @@ export class CdpBrowser {
     if (this.tabs.has(targetId)) return targetId;
     const { sessionId } = await this.send("Target.attachToTarget", { targetId, flatten: true });
     await this.send("Page.enable", {}, sessionId);
+    // Page dialogs and file pickers would open invisibly in this Chrome and stall the page; the owner answers them instead.
+    this.onEvent(sessionId, "Page.javascriptDialogOpening", (p) => this.onDialog?.(targetId, p));
+    this.onEvent(sessionId, "Page.javascriptDialogClosed", () => this.onDialog?.(targetId, null));
+    this.onEvent(sessionId, "Page.fileChooserOpened", (p) => this.onFileChooser?.(targetId, p));
+    await this.send("Page.setInterceptFileChooserDialog", {enabled: true}, sessionId).catch(() => {});
     await this.send("Runtime.enable", {}, sessionId);
+    await this.send('Network.enable',{maxTotalBufferSize:10*1024*1024,maxResourceBufferSize:10*1024*1024},sessionId);
     this.tabs.set(targetId, sessionId);
     const [width, height] = this.windowSize.split(',').map(Number);
     await this.send('Emulation.setDeviceMetricsOverride', {width, height, deviceScaleFactor: 1, mobile: false}, sessionId);
@@ -216,8 +267,16 @@ export class CdpBrowser {
   async closeTab(targetId) {
     const sessionId = this.tabs.get(targetId);
     this.tabs.delete(targetId);
+    for(const [key,r]of this.resourceResponses)if(r.sessionId===sessionId)this.resourceResponses.delete(key);
+    for(const [key,r]of this.fontBodies)if(r.sessionId===sessionId){this.fontBytes-=r.data.length;this.fontBodies.delete(key);}
     if (sessionId) await this.send("Target.detachFromTarget", { sessionId }).catch(() => {});
     await this.send("Target.closeTarget", { targetId }).catch(() => {});
+  }
+
+  async reload(tabId){
+    const sessionId=this.tabs.get(tabId);if(!sessionId)throw new Error('unknown tab '+tabId);let finish;
+    const loaded=new Promise(resolve=>{const off=this.onEvent(sessionId,'Page.domContentEventFired',()=>finish()),timer=setTimeout(()=>finish(),LOAD_TIMEOUT_MS);finish=()=>{clearTimeout(timer);off();resolve();};});
+    try{await this.send('Page.reload',{},sessionId);await loaded;}finally{finish();}
   }
 
   async navigate(tabId, url) {
@@ -253,7 +312,7 @@ export class CdpBrowser {
   async screenshot(tabId, { format = "jpeg", quality = 80 } = {}) {
     const sessionId = this.tabs.get(tabId);
     if (!sessionId) throw new Error("unknown tab " + tabId);
-    const { data } = await this.send("Page.captureScreenshot", { format, quality }, sessionId);
+    const { data } = await this.send("Page.captureScreenshot", { format, quality, captureBeyondViewport: false }, sessionId);
     return data; // base64
   }
 

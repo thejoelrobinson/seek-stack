@@ -1,0 +1,32 @@
+/* Settings › Computers. Tokens and type roles come from work-system.css. */
+.dk{display:flex;flex-direction:column}
+.dk-card h3{font:var(--type-title-3);margin:0 0 var(--sp-2)}
+.dk-card p{font:var(--type-body);color:var(--ink-2);margin:0 0 var(--sp-3)}
+.dk-card p.muted{font:var(--type-small);color:var(--muted)}
+.dk-primary{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);padding:var(--sp-4) var(--sp-5);border-radius:var(--r-md);background:var(--accent-soft);margin:0 0 var(--sp-3);flex-wrap:wrap}
+.dk-primary strong{display:block;font:600 var(--t-read)/1.35 var(--font);color:var(--ink)}
+.dk-primary small{font:var(--type-caption);color:var(--ink-2)}
+.dk a.button{display:inline-flex;align-items:center;gap:8px;height:var(--h-md);padding:0 18px;border-radius:var(--r);font:var(--type-button);text-decoration:none;background:var(--accent);color:var(--accent-text)}
+.dk a.button:hover{background:var(--accent-hover);text-decoration:none}
+.dk-note{margin:0}
+.dk-all{margin-top:var(--sp-4);border-top:1px solid var(--line);padding-top:var(--sp-3)}
+.dk-all summary{font:var(--type-button);color:var(--ink-2)}
+.dk-os{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-4);padding:var(--sp-3) 0;border-bottom:1px solid var(--line)}
+.dk-os b{width:72px;font:600 var(--t-sm)/1.3 var(--font)}
+.dk-os a{font:var(--type-button);color:var(--accent-ink)}
+.dk-os small{font:var(--type-caption);color:var(--muted);margin-left:4px}
+.dk-all code{font:500 11px/1.3 var(--mono);color:var(--muted)}
+.dk-fields{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);margin:0 0 var(--sp-3)}
+.dk-fields>div{border:1px solid var(--line);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);background:var(--surface-2)}
+.dk-fields small{display:block;font:var(--type-caption);color:var(--muted);margin-bottom:4px}
+.dk-fields code{font:600 var(--t-lg)/1.3 var(--mono);color:var(--ink);overflow-wrap:anywhere}
+.dk-fields .dk-code{font-size:var(--t-xl);letter-spacing:.08em;color:var(--accent-ink)}
+.dk-list{list-style:none;margin:0;padding:0;display:grid;gap:var(--sp-2)}
+.dk-list li{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border:1px solid var(--line);border-radius:var(--r-md)}
+.dk-list li>div{flex:1;min-width:0}
+.dk-list strong{display:block;font:600 var(--t-base)/1.35 var(--font)}
+.dk-list small{display:block;font:var(--type-caption);color:var(--muted)}
+.dk-list small.dk-on{color:var(--ok)}
+.dk-ic{width:36px;height:36px;border-radius:var(--r);display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-ink);flex:none}
+.dk-list button{height:var(--h-sm);padding:0 12px;flex:none}
+@media(max-width:640px){.dk-fields{grid-template-columns:1fr}.dk-primary{padding:var(--sp-4)}.dk a.button{width:100%;justify-content:center;height:var(--h-lg)}}

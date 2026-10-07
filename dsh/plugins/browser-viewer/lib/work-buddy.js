@@ -1,3 +1,4 @@
+import {applyProductPalette} from '/work/theme.js';
 // Seek's character: a small plush sprite that acts out what the agent is doing
 // (Muse's Alfred is the reference). Placements are plain markup,
 // <span class="buddy" data-buddy="hero">, mounted wherever they appear;
@@ -286,6 +287,7 @@ export function setLook(look) {
   if (color + acc === S.lookKey) return;
   S.lookKey = color + acc; S.look = color; S.acc = acc;
   const p = PALETTES[color];
+  applyProductPalette(p);
   let style = document.getElementById('buddy-look');
   if (!style) { style = document.createElement('style'); style.id = 'buddy-look'; document.head.append(style); }
   style.textContent = `:root{--b-hi:${p.hi};--b-mid:${p.mid};--b-deep:${p.deep};--b-cheek:${p.cheek};--b-line:${p.line}}`;

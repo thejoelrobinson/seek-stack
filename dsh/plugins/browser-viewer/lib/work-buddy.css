@@ -108,12 +108,20 @@ body[data-agent=offline] .buddy-name i,body[data-agent=sleep] .buddy-name i{back
 .buddy-stage.hero{margin:0 auto 18px}
 .buddy-stage.hero .buddy-say{left:calc(50% + 56px);top:4px;border-bottom-left-radius:4px}
 .welcome .buddy-stage.hero .buddy-name{display:none}
-#buddy-top{display:none}
+/* Top bar: the buddy is the agent's presence and the way into the inbox. Its name pill
+   shrinks to a status dot; the inbox count rides on its shoulder. */
+#buddy-top{display:inline-flex;flex-direction:row;align-items:center;flex:none;position:relative;border-radius:14px;padding:2px}
+#buddy-top:hover{background:var(--surface-3,#ebe8e2)}
+.buddy-stage.top .buddy-name{position:absolute;right:1px;bottom:3px;width:13px;height:13px;padding:0;gap:0;border:2px solid var(--bg,#faf9f6);border-radius:50%;background:#fff;box-shadow:none;font-size:0;justify-content:center}
+.buddy-stage.top .buddy-name>span{display:none}
+.buddy-stage.top .buddy-name i{width:7px;height:7px}
+.buddy-badge{position:absolute;top:0;right:-5px;min-width:17px;padding:0 5px;border-radius:99px;background:var(--alert,#c0413f);color:#fff;font-size:10px;font-weight:650;line-height:17px;text-align:center;border:2px solid var(--bg,#faf9f6);box-sizing:content-box}
+.buddy-badge:empty{display:none}
+body.has-hero #buddy-top{display:none}
+@media(min-width:641px){body.has-hero .topbar>.title-block{visibility:hidden}}
 .buddy-stage.top .buddy-say{top:calc(100% + 4px);left:0}
 .buddy-stage.panel .buddy-say{top:calc(100% + 2px);left:6px}
 .ap-head .buddy-stage{flex:none}
-.ap-close{display:none}
-.brand .buddy{grid-row:span 2}
 .speaker{display:flex;align-items:center;gap:6px}.speaker .buddy{margin:-3px 0}
 .typing-row{display:flex;align-items:flex-end;gap:10px;margin:18px 0}
 .typing-row .buddy{margin-bottom:-4px}
@@ -144,29 +152,21 @@ body[data-agent=offline] .buddy-name i,body[data-agent=sleep] .buddy-name i{back
 .chip span{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:6px 11px;background:#fbfaf8}
 .chip input:checked+span{background:#ece6f7;border-color:#b9a8dc;color:#4d3f70;font-weight:600}
 .panel-scrim{display:none}
-.topbar>div{flex:1;min-width:0}
+.topbar>.title-block{flex:1;min-width:0}
 @media(min-width:641px) and (max-width:1199px){
-  .topbar{gap:12px}
-  #buddy-top{display:inline-flex;flex-direction:row}
-  #buddy-top .buddy-name{display:none}
   body.panel-open .agent-panel{top:14px;right:14px;bottom:14px;width:380px;border-radius:20px}
 }
 @media(max-width:1199px){
   body.panel-open .agent-panel{display:flex;flex-direction:column;position:fixed;z-index:70;background:#fbfaf7;box-shadow:0 -20px 60px #1d122b33;animation:sheet-up .32s cubic-bezier(.2,.9,.3,1)}
   body.panel-open .panel-scrim{display:block;position:fixed;inset:0;z-index:65;background:#221c2c66;backdrop-filter:blur(2px)}
-  body.panel-open .ap-close{display:block;margin-left:auto;border:0;background:#efece6;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px}
-  body.has-hero #buddy-top{visibility:hidden}
 }
 @keyframes sheet-up{from{transform:translateY(40px);opacity:0}}
+.welcome .buddy-stage.hero .buddy{--bs:132px!important}
 @media(max-width:640px){
-  #buddy-top{display:inline-flex;position:absolute;left:50%;top:5px;transform:translateX(-50%);z-index:5}
-  .topbar{position:relative}.topbar>div{visibility:hidden}
-  .buddy-stage.top .buddy-say{left:50%;transform:translate(-50%,4px) scale(.96)}
-  .buddy-stage.top .buddy-say.show{transform:translate(-50%,0)}
-  .buddy-stage.hero{margin-bottom:10px}
-  .buddy-stage.hero .buddy{--bs:132px!important}
-  .buddy-stage.hero .buddy-say{left:calc(50% + 44px);max-width:150px}
-  .conv-title{display:block;font-size:17px;font-weight:600;line-height:1.35;margin:0 0 10px;color:#3a3147}
+  .buddy-stage.top .buddy{--bs:40px!important}
+  .buddy-stage.hero{margin-bottom:6px}
+  .welcome .buddy-stage.hero .buddy{--bs:112px!important}
+  .buddy-stage.hero .buddy-say{left:calc(50% + 40px);max-width:150px}
   body.panel-open .agent-panel{left:0;right:0;bottom:0;height:min(80dvh,640px);border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom)}
   body.panel-open .agent-panel:before{content:'';position:absolute;top:8px;left:50%;width:38px;height:4px;margin-left:-19px;border-radius:2px;background:#d9d4de}
   .look-editor{grid-template-columns:1fr}.look-preview{height:130px}

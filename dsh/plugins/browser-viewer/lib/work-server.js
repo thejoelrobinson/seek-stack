@@ -30,6 +30,7 @@ import {WorkStorage} from './work-storage.js';
 import {pendingReplies,enqueueReply,syncPending,deliveryText,acknowledge,deliverySeen} from './work-delivery.js';
 import {WorkUpdates,taskPage} from './work-updates.js';
 import {WorkAssets} from './work-assets.js';
+import {FRAME_CSP,FRAME_HTML} from './mirror-shape.js';
 import {WorkModelStatus} from './work-model-status.js';
 import {WorkDatabase} from './work-database.js';
 import {normalizeSchedule,nextCalendarRun,calendarParts,scheduleKey} from './work-schedules.js';
@@ -39,6 +40,14 @@ import {WorkAuthority,DEFAULT_AUTONOMY} from './work-authority.js';
 import {WorkBackups} from './work-backups.js';
 import {assertApprovalBinding} from './work-approval-binding.js';
 import {installWorkToolPolicy} from './work-tool-policy.js';
+import {CalendarStore} from './work-calendar.js';
+import {CalDAV,DAV_BASE} from './work-caldav.js';
+import {DavDevices,DAV_USER,mobileconfig} from './work-dav-auth.js';
+import {calendarTools} from './work-calendar-tools.js';
+import {DesktopRuntime} from './desktop/runtime.js';
+import {buildDesktopTools} from './desktop/tools.js';
+import {DesktopDevices,DesktopHub,DesktopControl} from './work-desktop.js';
+import {WebSocketServer} from 'ws';
 
 const liveStates = new Set(['running','queued']);
 const WALMART_SKILL = readFileSync(new URL('../skills/walmart-purchase-audit/SKILL.md',import.meta.url),'utf8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/,'').trim();
@@ -551,6 +560,47 @@ export async function mountWork(ctx,controller,isTrusted) {
   const modelQueue=new WorkModelQueue({busy:()=>nativeBusy||maintenance||backups?.flight||ctx.get('seekImages')?.busy||engine.store.tasks.some(t=>['running','queued'].includes(t.status)),onRecord:row=>{helperMetrics.push({...row,at:Date.now()});if(helperMetrics.length>100)helperMetrics.shift();telemetry.record({kind:'helper',phase:row.label||'local-helper',ms:row.durationMs||row.ms||0,status:row.status||'complete'});}});
   setWorkModelQueue(modelQueue);
   const finance=await new FinanceService(root,ctx.logger).init();
+  // The shared calendar and to-do list (you + Seek), synced with Apple Calendar and Reminders over CalDAV.
+  const calendar=await new CalendarStore(root).init(),davDevices=new DavDevices(root),dav=new CalDAV(calendar,{owner:'Seek',log:ctx.logger});
+  const profileDownloads=new Map();
+  // Desktop control through the Seek Desktop companion on this PC. The user grants each task in its
+  // local panel; the credential file it writes stays here and never reaches the model.
+  const appData=process.env.APPDATA||join(homedir(),'AppData','Roaming');
+  const desktopFiles=[join(appData,'Seek Desktop','agent-connection.json'),join(appData,'seek-desktop-bridge','agent-connection.json')];
+  const desktop=new DesktopRuntime({connectionFile:desktopFiles[0],
+    readFileImpl:async()=>{for(const file of desktopFiles){try{return await readFile(file,'utf8');}catch(e){if(e.code!=='ENOENT')throw e;}}throw new Error('Seek Desktop is not running on this PC. Ask the user to start it and grant this task in its panel.');},
+    resolveOwner:exec=>{const t=engine.store.tasks.find(x=>x.sessionId===exec?.agent?.id);if(!t||t.eval||t.proactive)return null;return {taskId:t.id,sessionId:t.sessionId,status:t.status,child:false};}});
+  // Computers paired from anywhere (Settings › Computers) reach Seek over one authenticated link each.
+  const desktopDevices=new DesktopDevices(root),desktopHub=new DesktopHub({devices:desktopDevices,log:ctx.logger});
+  const desktopControl=new DesktopControl({hub:desktopHub,local:desktop,
+    resolveOwner:exec=>{const t=engine.store.tasks.find(x=>x.sessionId===exec?.agent?.id);if(!t||t.eval||t.proactive)return null;return {taskId:t.id,sessionId:t.sessionId,status:t.status,child:false};},
+    // No computer allows this task yet: ask the user (Seek, the Inbox, Discord), and the computers themselves.
+    requestGrant:async(o,exec)=>{
+      const t=engine.task(o.taskId),online=desktopHub.online().filter(m=>!m.busy);
+      if(!online.length){const local=await desktopControl.localStatus();return local?`Seek Desktop is running on this PC but is not paired. Ask the user to allow task ${t.id} in Seek Desktop (Advanced › Give a task control by ID), or pair it in Settings › Computers.`:'No computer is connected to Seek. Ask the user to install Seek Desktop and pair it in Settings › Computers, then try again.';}
+      if(t.desktopAsk&&t.status==='waiting')return 'Still waiting for the user to allow desktop control. End your turn.';
+      const remote=online.filter(m=>m.remoteGrant),choices=[...remote.map(m=>`Allow on ${m.name}`),'Not now'];
+      desktopHub.ask(t);
+      const where=online.length===1?online[0].name:'one of your computers';
+      await engine.operation(async()=>{await engine.ask(exec,{question:`Allow Seek to use ${where} for “${t.title}”? It shares that computer’s mouse and keyboard; press Ctrl+Alt+Shift+S there to take over any time.${remote.length<online.length?' Seek Desktop on the computer also shows Allow.':''}`,choices});t.desktopAsk={at:Date.now(),choices:Object.fromEntries(remote.map(m=>[`Allow on ${m.name}`,m.id]))};await engine.save();});
+      return `Asked the user to allow desktop control on ${online.map(m=>m.name).join(' or ')}. End your turn now; their answer comes back to you.`;
+    }});
+  // An answer given on the computer itself continues the waiting task.
+  desktopHub.on(ev=>{
+    if(ev.type!=='answer')return;
+    const t=engine.store.tasks.find(x=>x.id===ev.taskId);if(!t?.desktopAsk||t.status!=='waiting')return;
+    t.desktopAsk=null;desktopHub.cancel(t.id);
+    void engine.operation(()=>engine.control(t.id,'reply',ev.allowed?`Allowed on ${ev.name}. Desktop control of that computer is granted now; continue with the desktop tools.`:`Not now. The user declined desktop control on ${ev.name}; continue without the desktop or explain what you need.`,undefined,[],{fastAck:true})).catch(e=>ctx.logger.warn('Desktop answer: '+e.message));
+  });
+  const linkSockets=new WebSocketServer({noServer:true,maxPayload:512*1024});
+  const offDesktopLink=ctx.webServer.registerUpgrade({path:'/work/desktop/link',handler:async(req,socket,head)=>{
+    const deny=code=>{try{socket.write(`HTTP/1.1 ${code} ${code===401?'Unauthorized':'Forbidden'}\r\nConnection: close\r\n\r\n`);}catch{}socket.destroy();};
+    if(!isTrusted(req,trusted))return deny(403);
+    const m=/^Bearer\s+(\S+)$/.exec(String(req.headers.authorization||''));const device=m?await desktopDevices.verify(m[1]).catch(()=>null):null;
+    if(!device)return deny(401);
+    linkSockets.handleUpgrade(req,socket,head,ws=>desktopHub.attach(ws,device));
+  }});
+  const downloadsRoot=join(root,'downloads');
   const purchases=await PurchaseStore.open(join(root,'purchases.sqlite'));
   const discord=new DiscordConnection();
   const pipedream=await new PipedreamConnection(root,ctx.logger).init();
@@ -611,6 +661,13 @@ export async function mountWork(ctx,controller,isTrusted) {
       return engine.task(body.id);
     }
     if(t.approval&&body.action==='reply')throw new Error('Choose Approve once, For this task, Always on this site or Reject.');
+    if(t.desktopAsk&&body.action==='reply'){
+      const choice=String(body.answer||''),deviceId=t.desktopAsk.choices?.[choice];
+      t.desktopAsk=null;desktopHub.cancel(t.id);
+      if(deviceId){try{await desktopHub.grant(deviceId,t);body={...body,answer:`${choice}: the user allowed it. Desktop control of that computer is granted now; continue with the desktop tools.`};}
+        catch(e){body={...body,answer:`${choice} did not work: ${e.message} Tell the user, and do not use the desktop until they allow it again.`};}}
+      else if(choice==='Not now')body={...body,answer:'Not now. The user declined desktop control; continue without the desktop or explain what you need.'};
+    }
     const value=await engine.operation(async()=>{if(body.action==='resume'&&controller.paused&&!controller.handoff){controller.paused=false;controller.sendStatus();engine.browserPausedTask=null;}return engine.control(body.id,body.action,body.answer,body.requestId,body.files||[],{fastAck:true});});
     if((body.action==='stop'||body.action==='pause')&&controller.handoff?.sessionId===t.sessionId)release();
     if(body.action==='stop'&&controller.approval?.sessionId===t.sessionId){controller.approval=null;controller.sendStatus();}
@@ -681,7 +738,9 @@ export async function mountWork(ctx,controller,isTrusted) {
       const goal=t.goal?.id?t.goal:engine.getLiveGoal?.(t.sessionId);
       if(t.resultEvidence.status!=='needs-verification'&&goal?.id&&Number.isInteger(goal.revision))return {...t.resultEvidence,next:{tool:'update_goal',arguments:{action:'complete',goal_id:goal.id,revision:goal.revision},note:'Checks passed. If the work is done, call update_goal with exactly these arguments, then give the user the result.'}};
       return t.resultEvidence;}),
-    ...financeTools(finance,ctx,{onEvidence:(e,evidence)=>{const t=engine.forAgent(e);recordFinanceEvidence(t,evidence);}})
+    ...financeTools(finance,ctx,{onEvidence:(e,evidence)=>{const t=engine.forAgent(e);recordFinanceEvidence(t,evidence);}}),
+    ...calendarTools(calendar,register,{forAgent:e=>engine.forAgent(e)}),
+    ...buildDesktopTools({defineTool,runtime:desktopControl}).map(def=>ctx.tools.register(def))
   ];
   const trusted=ctx.get('webRuntime')?.trustedHosts||[];
   // True only for requests made on this PC (not relayed through Cloudflare).
@@ -737,10 +796,62 @@ export async function mountWork(ctx,controller,isTrusted) {
       else if((t.status==='waiting'||t.status==='attention')&&t.question?.text)void push.notify({title:t.approval?'Approve this?':t.handoff?'Your turn':'Needs you',body:`${t.title}: ${t.question.text}`.slice(0,220),taskId:t.id,tag:`ask-${t.id}`});
     }
   },2000);
+  // Public host for Apple devices: the request's own host, or the configured public host when on this PC.
+  const davHost=req=>{let h='';try{h=new URL('http://'+(req.headers['x-forwarded-host']||req.headers.host||'')).hostname;}catch{}return isLocal(req)||!h?(trusted.find(x=>!/^(localhost|127\.|\[::1\])/.test(x))||h||'localhost').replace(/:\d+$/,''):h;};
+  calendar.onChange(()=>updates.refresh());
+  const whenText=(ms,allDay)=>allDay?new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:calendar.zone}).format(new Date(ms)):new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:calendar.zone}).format(new Date(ms));
+  let remindersBusy=false;
+  const reminderTimer=setInterval(async()=>{
+    if(remindersBusy)return;remindersBusy=true;
+    try{
+      const {fired,prep}=calendar.scan(),settings=calendar.settings();
+      for(const r of fired){
+        const item=(()=>{try{return calendar.summary(calendar.find(r.id));}catch{return null;}})(),allDay=!!item?.allDay;
+        const body=r.kind==='todo'?(r.start?`Due ${whenText(r.start,allDay)}`:'To-do'):`${whenText(r.start,allDay)}${item?.location?' · '+item.location:''}`;
+        if(settings.push&&engine.store.settings.notifications!==false)void push.notify({title:r.kind==='todo'?`To-do: ${r.title}`:r.title,body,tag:'cal-'+r.key.slice(0,60)});
+        if(settings.discord)calendar.enqueue('discord',{key:r.key,kind:r.kind,title:r.title,when:body,itemId:r.id});
+      }
+      for(const p of prep){
+        const when=whenText(p.start,p.allDay);
+        const objective=`Get ready for "${p.title}" (${when}${p.location?', at '+p.location:''}). ${p.instruction}\n\nThis preparation was started automatically from the shared calendar${p.notes?'. Notes on the item: '+p.notes.slice(0,600):''}. Research, compare and draft only: do not buy, book, send or sign up for anything. Finish with a short summary of what you prepared and what still needs the user's decision.`;
+        const task=await engine.operation(async()=>{const t=await engine.create({objective,mode:'task'});t.proactive={calendar:p.uid,occurrence:p.occurrence};t.title=`Prepared: ${p.title}`.slice(0,90);await engine.save();return t;});
+        calendar.markPrepStarted(p.uid,p.occurrence,task.id);
+        if(engine.store.settings.notifications!==false)void push.notify({title:`Getting ready: ${p.title}`,body:`Seek started preparing for ${when}.`,taskId:task.id,tag:'prep-'+task.id});
+      }
+    }catch(e){ctx.logger.warn('Calendar reminders: '+e.message);}
+    finally{remindersBusy=false;}
+  },20000);
   const secretError=()=>{const e=new Error('That looks like a password. Anything typed in chat is visible to the agent, so it was not sent. For sign-ins, use "Save a login" on the sign-in card instead.');e.code='secret';return e;};
   const route={kind:'prefix',path:'/work',handler:async(req,res)=>{
     if(!isTrusted(req,trusted)){res.writeHead(403);res.end('forbidden');return;}
     const url=new URL(req.url,'http://local');
+    if(url.pathname===DAV_BASE||url.pathname.startsWith(DAV_BASE+'/')){
+      // From outside, CalDAV arrives only through the proxy, which checked a device password.
+      if(!isLocal(req)&&!req.headers['x-seek-dav-device']){res.writeHead(401,{'WWW-Authenticate':'Basic realm="Seek Calendar"','Cache-Control':'no-store'});res.end();return;}
+      let body='';if(['PUT','PROPFIND','PROPPATCH','REPORT'].includes(req.method)){const chunks=[];let length=0;for await(const chunk of req){length+=chunk.length;if(length>1024*1024){res.writeHead(413);res.end();return;}chunks.push(chunk);}body=Buffer.concat(chunks).toString('utf8');}
+      const out=await dav.handle(req.method,url.pathname,req.headers,body);
+      res.writeHead(out.status,out.headers);res.end(out.body||undefined);return;
+    }
+    if(url.pathname==='/work/desktop/pair'){
+      if(req.method!=='POST'){json(res,405,{error:'Method not allowed'});return;}
+      try{const chunks=[];let length=0;for await(const chunk of req){length+=chunk.length;if(length>8192)throw new Error('Request is too large.');chunks.push(chunk);}
+        json(res,200,await desktopHub.pair(JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}')));void security.record('desktop.paired',{},{local:isLocal(req)});}
+      catch(e){void security.record('desktop.pair_failed',{},{local:isLocal(req)});json(res,400,{error:e.message});}
+      return;
+    }
+    if(req.method==='GET'&&url.pathname.startsWith('/work/downloads/')){
+      const name=decodeURIComponent(url.pathname.slice('/work/downloads/'.length));
+      const manifest=JSON.parse(await readFile(join(downloadsRoot,'manifest.json'),'utf8').catch(()=>'{"files":[]}'));
+      const entry=(manifest.files||[]).find(x=>x.name===name);
+      if(!entry||!/^[\w.@+-]+$/.test(name)){json(res,404,{error:'Not found'});return;}
+      const info=await stat(join(downloadsRoot,name)).catch(()=>null);if(!info){json(res,404,{error:'Not found'});return;}
+      res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':info.size,'Content-Disposition':`attachment; filename="${name}"`,'Cache-Control':'private, max-age=3600','X-Content-Type-Options':'nosniff'});
+      const {createReadStream}=await import('node:fs');createReadStream(join(downloadsRoot,name)).pipe(res);return;
+    }
+    if(req.method==='GET'&&url.pathname==='/work/mirror-frame'){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Content-Security-Policy':FRAME_CSP,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(FRAME_HTML);return;}
+    if(req.method==='GET'&&url.pathname==='/work/mirror-res'){
+      try{const r=await controller.mirror?.resources.get(url.searchParams.get('u'),url.searchParams.get('f'),url.searchParams.get('s'));if(!r)throw new Error('Unavailable');res.writeHead(200,{'Content-Type':r.type,'Content-Length':r.data.length,'Cache-Control':'private, max-age=300','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'"});res.end(r.data);}catch{res.writeHead(404,{'Cache-Control':'no-store'});res.end('Unavailable');}return;
+    }
     if(url.pathname.startsWith('/work/api/')&&url.pathname!=='/work/api/events'){const began=performance.now();res.once('finish',()=>{const key=req.method+' '+url.pathname,row=metrics.get(key)||{requests:0,failures:0,totalMs:0,maxMs:0};const ms=performance.now()-began;row.requests++;row.failures+=res.statusCode>=400?1:0;row.totalMs+=ms;row.maxMs=Math.max(row.maxMs,ms);metrics.set(key,row);telemetry.record({kind:'endpoint',phase:key,ms,status:res.statusCode>=400?'error':'ok'});});}
     try {
       if(req.method==='GET'&&url.pathname==='/work/api/state') {json(res,200,{...engine.store,tasks:engine.store.tasks.filter(t=>!t.eval)});return;}
@@ -780,6 +891,19 @@ export async function mountWork(ctx,controller,isTrusted) {
         }));
         json(res,200,{taskId:t.id,children:rows});return;
       }
+      if(req.method==='GET'&&url.pathname==='/work/api/calendar'){
+        const from=Number(url.searchParams.get('from'))||calendar.midnight(Date.now())-7*86400000,to=Number(url.searchParams.get('to'))||from+42*86400000;
+        if(!(to>from)||to-from>400*86400000){json(res,400,{error:'Ask for a range of at most 400 days.'});return;}
+        json(res,200,{...calendar.range(from,to),reminders:calendar.activeReminders(),devices:(await davDevices.list()).length});return;}
+      if(req.method==='GET'&&url.pathname==='/work/api/desktop'){
+        const manifest=JSON.parse(await readFile(join(downloadsRoot,'manifest.json'),'utf8').catch(()=>'{"files":[]}'));
+        json(res,200,{computers:await desktopHub.machines(),downloads:manifest,thisPc:!!(await desktopControl.localStatus()),server:davHost(req)});return;}
+      if(req.method==='GET'&&url.pathname==='/work/api/calendar/devices'){json(res,200,{devices:await davDevices.list(),server:davHost(req),username:DAV_USER,path:DAV_BASE+'/'});return;}
+      if(req.method==='GET'&&url.pathname==='/work/api/calendar/profile'){
+        const ticket=profileDownloads.get(url.searchParams.get('ticket')||'');profileDownloads.delete(url.searchParams.get('ticket')||'');
+        if(!ticket||ticket.expires<Date.now()){res.writeHead(410,{'Content-Type':'text/plain','Cache-Control':'no-store'});res.end('This setup link has expired. Create a new one in Seek.');return;}
+        res.writeHead(200,{'Content-Type':'application/x-apple-aspen-config','Content-Disposition':'attachment; filename="Seek-Calendar.mobileconfig"','Cache-Control':'no-store'});res.end(mobileconfig(ticket));return;}
+      if(req.method==='GET'&&url.pathname==='/work/api/calendar/outbox'){if(!isLocal(req)){json(res,403,{error:'Only local helpers can read the reminder outbox.'});return;}json(res,200,{items:calendar.pending(url.searchParams.get('channel')||'discord')});return;}
       if(req.method==='GET'&&url.pathname==='/work/api/dreaming') {json(res,200,dreaming.status());return;}
       if(req.method==='GET'&&url.pathname==='/work/api/growth') {json(res,200,{...nightShift.status(),skills:growth.skills({all:true}),notes:growth.notes({status:'all'}),improvements:growth.improvements(40),cases:EVAL_CASES.map(c=>({id:c.id,title:c.title,category:c.category,history:growth.caseHistory(c.id,10)}))});return;}
       if(req.method==='GET'&&url.pathname==='/work/api/memory/search') {json(res,200,{ids:dreaming.searchIds(url.searchParams.get('q')||'')});return;}
@@ -838,6 +962,28 @@ export async function mountWork(ctx,controller,isTrusted) {
         }
         else if(url.pathname==='/work/api/ideas/refresh')value=await engine.refreshIdeas();
         else if(url.pathname==='/work/api/dreaming/settings')value=await dreaming.configure(body);
+        else if(url.pathname==='/work/api/calendar/item'){
+          const action=String(body.action||'save');
+          if(action==='save')value=calendar.save(String(body.kind||''),body.fields||{},{id:body.id||null,source:'you'});
+          else if(action==='complete')value=calendar.complete(String(body.id||''),body.done!==false);
+          else if(action==='delete')value=calendar.delete(String(body.id||''));
+          else throw new Error('Choose save, complete or delete.');
+        }
+        else if(url.pathname==='/work/api/desktop/code')value=desktopHub.createCode();
+        else if(url.pathname==='/work/api/desktop/device'){if(body.action==='rename')value=await desktopHub.rename(String(body.id||''),body.name);else if(body.action==='remove'){await desktopHub.remove(String(body.id||''));value={removed:true};}else throw new Error('Choose rename or remove.');}
+        else if(url.pathname==='/work/api/calendar/reminder')value=calendar.actOnReminder(String(body.key||''),String(body.action||''),body.minutes);
+        else if(url.pathname==='/work/api/calendar/settings')value=calendar.configure(body);
+        else if(url.pathname==='/work/api/calendar/devices'){
+          if(body.action==='revoke')value=await davDevices.revoke(String(body.id||''));
+          else if(body.action==='create'){
+            const device=await davDevices.create(body.name),ticket=randomUUID();
+            // A one-time, ten-minute link to the configuration profile that carries this password.
+            profileDownloads.set(ticket,{host:davHost(req),password:device.password,deviceName:device.name,expires:Date.now()+10*60000});
+            for(const [k,v] of profileDownloads)if(v.expires<Date.now())profileDownloads.delete(k);
+            value={...device,server:davHost(req),path:DAV_BASE+'/',profile:'/work/api/calendar/profile?ticket='+ticket};
+          }else throw new Error('Choose create or revoke.');
+        }
+        else if(url.pathname==='/work/api/calendar/outbox/ack'){if(!isLocal(req))throw new Error('Only local helpers can acknowledge reminders.');value={acknowledged:calendar.delivered(Array.isArray(body.ids)?body.ids:[])};}
         else if(url.pathname==='/work/api/dreaming/run')value=dreaming.start();
         else if(url.pathname==='/work/api/growth/run')value=nightShift.start(String(body.step||''),{manual:true,caseIds:Array.isArray(body.cases)?body.cases.map(String):null,attempts:body.attempts});
         else if(url.pathname==='/work/api/growth/stop'){nightShift.controller?.abort(new Error('Stopped by you.'));value=nightShift.status();}
@@ -924,6 +1070,6 @@ export async function mountWork(ctx,controller,isTrusted) {
   },750);
   const streamAbort=new AbortController();
   const stopAnswering=harness.answerFor((sessionId,request)=>engine.claimNative(sessionId,request));streamHealth='connected';
-  ctx.effect(()=>()=>{engine.stopped=true;dreaming.stop();modelQueue.close();setWorkModelQueue(null);streamAbort.abort();stopAnswering();for(const res of eventStreams)res.end();clearInterval(timer);clearInterval(dreamTimer);clearInterval(learner);clearInterval(shiftTimer);nightShift.stop();growth.close();clearInterval(backupTimer);clearInterval(helperTimer);clearInterval(notifier);off();for(const d of disposers)d();void Promise.allSettled([engine.operations,engine.serial,controller.queue,authority.drain?.(),backups?.flight]).then(async()=>{await engine.serial;await engine.persistence.close?.();authority.close();telemetry.close();}).catch(e=>ctx.logger.warn('Final snapshot: '+e.message));},'work-mode cleanup');
+  ctx.effect(()=>()=>{engine.stopped=true;dreaming.stop();modelQueue.close();setWorkModelQueue(null);streamAbort.abort();stopAnswering();for(const res of eventStreams)res.end();clearInterval(timer);clearInterval(dreamTimer);clearInterval(learner);clearInterval(shiftTimer);nightShift.stop();growth.close();clearInterval(backupTimer);clearInterval(helperTimer);clearInterval(notifier);clearInterval(reminderTimer);desktopControl.close();desktop.close();desktopHub.close();offDesktopLink?.();linkSockets.close();off();for(const d of disposers)d();void Promise.allSettled([engine.operations,engine.serial,controller.queue,authority.drain?.(),backups?.flight]).then(async()=>{await engine.serial;await engine.persistence.close?.();authority.close();calendar.close();telemetry.close();}).catch(e=>ctx.logger.warn('Final snapshot: '+e.message));},'work-mode cleanup');
   return engine;
 }

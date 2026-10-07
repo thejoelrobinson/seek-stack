@@ -11,7 +11,7 @@ export function renderGrowth(options){
   ({api,toast}=options);
   let host=document.querySelector('#growth');
   if(!host){
-    document.querySelector('#main').innerHTML=`<section id="growth" class="growth" aria-labelledby="growth-title"><div class="growth-head"><div><span class="growth-eyebrow">GETTING BETTER EVERY NIGHT</span><h2 id="growth-title">Report card</h2></div></div><p class="section-copy">Every night Seek tests itself on real kinds of work, turns finished tasks into skills, and tries one or two improvements — keeping only what makes the tests better. Nothing here touches your accounts or money.</p><div id="growth-status" role="status">Loading…</div><div class="growth-tabs" role="tablist"></div><div id="growth-body"></div></section>`;
+    (document.querySelector('#settings-body')||document.querySelector('#main')).innerHTML=`<section id="growth" class="growth" aria-labelledby="growth-title"><div class="growth-head"><div><span class="growth-eyebrow">GETTING BETTER EVERY NIGHT</span><h2 id="growth-title">Report card</h2></div></div><p class="section-copy">Every night Seek tests itself on real kinds of work, turns finished tasks into skills, and tries one or two improvements — keeping only what makes the tests better. Nothing here touches your accounts or money.</p><div id="growth-status" role="status">Loading…</div><div class="growth-tabs" role="tablist"></div><div id="growth-body"></div></section>`;
     host=document.querySelector('#growth');
   }
   if(data)paint();

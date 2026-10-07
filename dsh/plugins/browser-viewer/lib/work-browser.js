@@ -2,6 +2,7 @@
 // watch live, take control (the agent pauses and can't see the page), hand back
 // (the agent resumes by itself). Works with mouse, keyboard and touch.
 import {trapModal,approvalDetails,approvalAttributes} from '/work/product.js';
+import {MirrorView} from '/work/mirror.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icon = n => `<svg class="ic" aria-hidden="true" focusable="false"><use href="#i-${n}"/></svg>`;
@@ -17,9 +18,14 @@ async function api(body) {
   return data;
 }
 function toast(message) { const t = $('#toast'); if (!t) return; t.textContent = message; t.hidden = false; clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, 5000); }
-function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+// Browser actions show loading at once, as a browser does; Native resumes when the page arrives.
+function send(obj) { if (ws && ws.readyState === 1) { if (['navigate', 'back', 'forward', 'reload', 'tab'].includes(obj.type)) mirrorView?.expectLoad(); ws.send(JSON.stringify(obj)); } }
 
-let pendingControl = false,releaseFocus=null;
+let pendingControl = false,releaseFocus=null,returnFocus=null,expandedChoice=null,layoutModal=null;
+let mirrorView=null,mirrorWanted=false,pictureChoice=false,mirrorFallback=false,mirrorRelay=false,mirrorLoading=false;
+try{pictureChoice=localStorage.getItem('seek.browser.view')==='picture';}catch{}
+function nativeView(on){mirrorView?.show(on);if(!on){linkStatus('');closeMenu();}$('#bv-canvas').hidden=on;const toggle=$('#bv-view');if(toggle){toggle.textContent=on?'Native':'Picture';toggle.setAttribute('aria-pressed',String(on));}$('#bv-keys').hidden=on?!mirrorRelay:status.control==='agent';if(on&&mirrorLoading)$('#bv-veil').hidden=false;}
+function syncMirror(){const want=!!(status.running&&status.control==='user'&&status.mirror?.available&&!pictureChoice&&!$('#bv-sheet').hidden);if(want!==mirrorWanted){mirrorWanted=want;mirrorFallback=false;send({type:'mirror',on:want});}nativeView(want&&!mirrorFallback);}
 function takeControl() { if (ws && ws.readyState === 1) send({type:'pause', paused:true}); else pendingControl = true; }
 async function handBack() {
   try {
@@ -51,10 +57,10 @@ function connect() {
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/browser/stream`);
   ws.binaryType = 'arraybuffer';
   ws.onmessage = ev => {
-    if (typeof ev.data === 'string') { try { const m = JSON.parse(ev.data); if (m.type === 'status') onStatus(m); else if (m.type === 'batchFrame') { batchFrames[m.slot] = 'data:image/jpeg;base64,' + m.jpeg; paintBatch(); } } catch {} return; }
+    if (typeof ev.data === 'string') { try { const m = JSON.parse(ev.data); if (m.type === 'status') onStatus(m); else if(m.type?.startsWith('mirror-')){if(m.type==='mirror-reset'){mirrorFallback=false;nativeView(mirrorWanted);}void mirrorView?.message(m);}else if (m.type === 'batchFrame') { batchFrames[m.slot] = 'data:image/jpeg;base64,' + m.jpeg; paintBatch(); } } catch {} return; }
     createImageBitmap(new Blob([ev.data], {type:'image/jpeg'})).then(bmp => { frame?.close?.(); frame = bmp; paint(); }).catch(() => {});
   };
-  ws.onclose = () => { ws = null; if (wanted()) retry = setTimeout(connect, 1500); };
+  ws.onclose = () => { ws = null;mirrorWanted=false;nativeView(false); if (wanted()) retry = setTimeout(connect, 1500); };
 }
 
 function paint() {
@@ -80,21 +86,42 @@ function fit() {
   c.style.height = Math.floor(c.height * s) + 'px';
 }
 
+function layoutSheet(){
+  const sheet=$('#bv-sheet');if(!sheet||sheet.hidden)return;
+  const phone=matchMedia('(max-width:640px)').matches,desktop=matchMedia('(min-width:1200px)').matches;
+  const expanded=phone||(expandedChoice??status.control==='user'),modal=expanded||!desktop;
+  sheet.classList.toggle('expanded',expanded);document.body.classList.toggle('bv-expanded',expanded);
+  const toggle=$('#bv-layout');toggle.hidden=phone;toggle.textContent=expanded?(desktop?'Dock':'Restore'):'Expand';toggle.setAttribute('aria-pressed',String(expanded));toggle.setAttribute('aria-label',expanded?'Restore browser panel':'Expand browser to fill the window');
+  const shell=sheet.querySelector('.bv-shell');shell.setAttribute('role',modal?'dialog':'region');if(modal)shell.setAttribute('aria-modal','true');else shell.removeAttribute('aria-modal');
+  if(layoutModal!==modal){releaseFocus?.();releaseFocus=null;layoutModal=modal;if(modal)releaseFocus=trapModal(sheet,{returnTo:null,onClose:close});}
+}
+function sizeSheet(){
+  const sheet=$('#bv-sheet'),v=window.visualViewport;if(!sheet)return;
+  // Keyboard/browser chrome changes the visible viewport independently of the layout viewport.
+  // Keep pinch zoom local: it must not repeatedly resize the remote page.
+  if(!v||Math.abs(v.scale-1)<.01){sheet.style.setProperty('--bv-screen-height',(v?.height||innerHeight)+'px');sheet.style.setProperty('--bv-screen-top',(v?.offsetTop||0)+'px');}
+  layoutSheet();
+}
+
 // ── status → UI ─────────────────────────────────────────────────────────────
-const isPhone = () => matchMedia('(max-width: 640px), (pointer: coarse)').matches;
+const isPhone = () => matchMedia('(max-width: 640px)').matches;
+const viewportMessage=r=>({type:'viewport',mode:isPhone()?'mobile':'fit',width:r.width,height:r.height,dpr:devicePixelRatio||1,coarse:matchMedia('(pointer:coarse)').matches,colorScheme:matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light',reducedMotion:matchMedia('(prefers-reduced-motion:reduce)').matches});
 let askedMobile = false, bannerOpen = false;
 function onStatus(m) {
+  if(mirrorFallback&&m.control==='user'&&m.url&&m.url!==status.url&&!pictureChoice){mirrorFallback=false;send({type:'mirror',on:true,retry:true});}
+  if(status.control!==m.control)expandedChoice=null;
   status = m;
   if (pendingControl) { pendingControl = false; if (m.control !== 'user') send({type:'pause', paused:true}); }
+  renderSheet();
   // In control on a phone: ask for a phone-sized page so it is readable and tappable.
   if (m.control !== 'user') askedMobile = false;
-  else if (!askedMobile && m.viewport !== 'mobile' && isPhone() && !$('#bv-sheet').hidden) {
+  else if (!askedMobile && !$('#bv-sheet').hidden) {
     askedMobile = true;
     const r = $('#bv-stage').getBoundingClientRect();
-    send({type:'viewport', mode:'mobile', width:r.width, height:r.height});
+    send(viewportMessage(r));
   }
   if (m.error && /Take control first/.test(m.error)) toast(`${agentName} is using the browser. Take control first.`);
-  renderSheet();
+  syncMirror();
   paintBatch();
   for (const el of document.querySelectorAll('[data-bv-live="doing"]')) el.textContent = doing();
   for (const el of document.querySelectorAll('[data-bv-live="where"]')) el.textContent = where();
@@ -131,14 +158,16 @@ function paintBatch() {
 
 function renderSheet() {
   if ($('#bv-sheet').hidden) return;
+  layoutSheet();
   const handoff = task?.handoff || status.handoff, approval = task?.approval || status.approval;
   const control = status.control || 'idle', user = control === 'user';
+  const tabs=$('#bv-tabs');if(tabs){tabs.hidden=!user;const top=$('.bv-top');if(matchMedia('(min-width:900px)').matches){if(tabs.parentNode!==top)top.insertBefore(tabs,$('#bv-who'));}else if(tabs.parentNode===top)top.after(tabs);const html=(status.tabs||[]).map(t=>`<div class="bv-tab${t.id===status.activeTabId?' active':''}"><button data-bv="tab-switch" data-tab="${esc(t.id)}" aria-current="${t.id===status.activeTabId?'page':'false'}">${esc(t.title||hostOf(t.url)||'New tab')}</button><button data-bv="tab-close" data-tab="${esc(t.id)}" aria-label="Close ${esc(t.title||'tab')}">×</button></div>`).join('')+'<button data-bv="tab-open" aria-label="New tab">+</button>';if(tabs.dataset.sig!==html){tabs.innerHTML=html;tabs.dataset.sig=html;}}
   $('#bv-title').textContent = status.title || 'Browser';
   $('#bv-host').textContent = hostOf(status.url);
   $('#bv-who').textContent = approval ? 'Waiting for your approval' : user ? "You're in control" : control === 'agent' ? `${agentName} is browsing` : 'Browser is free';
   $('#bv-who').className = 'bv-who ' + (approval ? 'wait' : user ? 'you' : control);
   const main = $('#bv-main');
-  main.hidden = !!approval || (control === 'idle' && !task);
+  main.hidden = !!approval || (!status.running && !task);
   main.textContent = user ? `Hand back to ${agentName}` : 'Take control';
   main.dataset.bv = user ? 'handback' : 'control';
   const banner = $('#bv-banner');
@@ -156,11 +185,42 @@ function renderSheet() {
   } else { banner.hidden = true; banner.dataset.sig = ''; }
   const drive = control !== 'agent';
   $('#bv-nav').hidden = !drive;
-  $('#bv-keys').hidden = !drive;
-  $('#bv-veil').hidden = drive || !status.running;
+  $('#bv-keys').hidden = !drive || (mirrorWanted && !mirrorFallback && !mirrorRelay);
+  const toggle=$('#bv-view');if(toggle)toggle.hidden=!user||!status.mirror?.available;
+  $('#bv-veil').hidden = (drive || !status.running) && !(mirrorLoading && mirrorView?.active);
   $('#bv-empty').hidden = !!status.running;
   if (status.url && document.activeElement !== $('#bv-addr')) $('#bv-addr').value = status.url;
+  renderAsk();
   requestAnimationFrame(fit);
+}
+// Hovered link address, bottom-left like Chrome's status bubble.
+function linkStatus(url){const pill=$('#bv-status');if(!pill)return;clearTimeout(linkStatus.timer);if(url){pill.textContent=url;pill.hidden=false;}else linkStatus.timer=setTimeout(()=>{pill.hidden=true;},120);}
+// Right-click on a link or selected text: the few entries a browser offers for them.
+let menuData=null;
+function openMenu(m){const menu=$('#bv-menu');menuData=m;menu.innerHTML=(m.href?'<button role="menuitem" data-bv="menu-open" type="button">Open link in new tab</button><button role="menuitem" data-bv="menu-copy-link" type="button">Copy link address</button>':'')+(m.text?'<button role="menuitem" data-bv="menu-copy" type="button">Copy</button>':'');menu.hidden=false;menu.style.left=Math.max(8,Math.min(m.x,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(m.y,innerHeight-menu.offsetHeight-8))+'px';menu.querySelector('button')?.focus({preventScroll:true});}
+function closeMenu(refocus){const menu=$('#bv-menu');if(!menu||menu.hidden)return;menu.hidden=true;menuData=null;if(refocus&&mirrorView?.active)mirrorView.frame.focus({preventScroll:true});}
+async function copyText(text,done){try{await navigator.clipboard.writeText(text);toast(done);}catch{toast('Copying is blocked in this browser.');}}
+// The page's own questions (alert/confirm/prompt/leave) and file pickers, answered here as a browser would.
+function renderAsk() {
+  const box = $('#bv-ask'), d = status.dialog, f = !d && status.fileChooser, sig = JSON.stringify(d || f || null);
+  if (!box || box.dataset.sig === sig) return;
+  const was = !box.hidden; box.dataset.sig = sig; box.hidden = !d && !f;
+  if (box.hidden) { box.innerHTML = ''; if (was) (mirrorView?.active ? mirrorView.frame : $('#bv-canvas')).focus({preventScroll:true}); return; }
+  const from = esc(d?.host || hostOf(status.url) || 'This page'), files = f?.multiple ? 'files' : 'a file', leave = d?.type === 'beforeunload';
+  box.innerHTML = d
+    ? `<div class="bv-ask-card" role="alertdialog" aria-modal="true" aria-labelledby="bv-ask-title" aria-describedby="bv-ask-text"><strong id="bv-ask-title">${leave ? 'Leave site?' : `${from} says`}</strong><p id="bv-ask-text">${esc(leave ? 'Changes you made may not be saved.' : d.message)}</p>${d.type === 'prompt' ? `<input id="bv-ask-input" value="${esc(d.defaultPrompt)}" aria-label="Your answer" autocomplete="off">` : ''}<div class="bv-ask-actions">${d.type === 'alert' ? '' : '<button data-bv="ask-cancel" type="button">Cancel</button>'}<button class="primary" data-bv="ask-ok" type="button">${leave ? 'Leave' : 'OK'}</button></div></div>`
+    : `<div class="bv-ask-card" role="dialog" aria-labelledby="bv-ask-title"><strong id="bv-ask-title">Upload ${files}</strong><p>${from} is asking for ${files} from this device.</p><div class="bv-ask-actions"><button data-bv="file-cancel" type="button">Cancel</button><button class="primary" data-bv="file-choose" type="button">Choose ${f.multiple ? 'files' : 'file'}…</button></div></div>`;
+  const first = box.querySelector('#bv-ask-input') || box.querySelector('.primary');
+  first?.focus({preventScroll:true}); first?.select?.();
+  if (f) { const picker = $('#bv-file'); picker.accept = f.accept || ''; picker.multiple = !!f.multiple; picker.value = ''; if (navigator.userActivation?.isActive) picker.click(); }
+}
+const base64 = bytes => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
+async function uploadPicked(input) {
+  const token = status.fileChooser?.token, files = [...input.files]; input.value = '';
+  if (!token || !files.length) return;
+  if (files.reduce((n, f) => n + f.size, 0) > 50 * 1024 * 1024) { toast('Those files are too large to upload here (50 MB at most).'); send({type:'upload', token, cancel:true}); return; }
+  toast(files.length > 1 ? `Uploading ${files.length} files…` : `Uploading ${files[0].name}…`);
+  send({type:'upload', token, files:await Promise.all(files.map(async f => ({name:f.name, type:f.type, data:base64(new Uint8Array(await f.arrayBuffer()))})))});
 }
 
 // ── inline card in the conversation ─────────────────────────────────────────
@@ -228,26 +288,39 @@ function build() {
   el.innerHTML = `<div class="bv-shell" role="dialog" aria-modal="true" aria-label="Browser">
     <header class="bv-top"><button class="bv-close" data-bv="close" aria-label="Close browser">${icon('x')}</button>
       <div class="bv-where"><strong id="bv-title">Browser</strong><span id="bv-host"></span></div>
-      <span class="bv-who" id="bv-who" aria-live="polite"></span><button class="primary bv-main" id="bv-main"></button></header>
-    <div class="bv-banner" id="bv-banner" hidden></div>
+      <span class="bv-who" id="bv-who" aria-live="polite"></span><button class="bv-layout" id="bv-layout" data-bv="layout" type="button">Expand</button><button class="primary bv-main" id="bv-main"></button></header>
+    <div class="bv-banner" id="bv-banner" hidden></div><div id="bv-tabs" class="bv-tabs" aria-label="Browser tabs" hidden></div>
     <div class="bv-nav" id="bv-nav" hidden><button data-bv="back" aria-label="Back">${icon('back')}</button><button data-bv="forward" aria-label="Forward">${icon('forward')}</button><button data-bv="reload" aria-label="Reload">${icon('reload')}</button><input id="bv-addr" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Address" placeholder="Search or enter address"></div>
     <div class="bv-stage" id="bv-stage"><canvas id="bv-canvas" tabindex="0" aria-label="Live browser"></canvas><div class="bv-empty" id="bv-empty">The browser isn’t open right now.</div><div class="bv-batch" id="bv-batch" hidden><div class="bv-batch-head"><strong data-b="label"></strong><span data-b="count"></span></div><div class="bv-batch-bar"><i data-b="bar"></i></div><div class="bv-batch-grid">${[0,1,2,3].map(i => `<figure hidden><img data-slot="${i}" alt=""><figcaption>Tab ${i + 1}</figcaption></figure>`).join('')}</div><div class="bv-batch-meta" data-b="meta"></div></div><div class="bv-veil" id="bv-veil" hidden>Watching · take control to use it yourself</div></div>
     <footer class="bv-keys" id="bv-keys" hidden><input id="bv-type" placeholder="Type into the page…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Type into the page"><button data-bv-key="Backspace" aria-label="Backspace">${icon('backspace')}</button><button data-bv-key="Tab">Tab</button><button data-bv-key="Enter">Enter</button></footer>
   </div>`;
   document.body.appendChild(el);
+  sizeSheet();window.addEventListener('resize',sizeSheet);window.visualViewport?.addEventListener('resize',sizeSheet);window.visualViewport?.addEventListener('scroll',sizeSheet);
+  const toggle=document.createElement('button');toggle.id='bv-view';toggle.type='button';toggle.dataset.bv='view';toggle.textContent='Picture';toggle.title='Switch between native page and pictures';$('#bv-nav').append(toggle);
+  const pill=document.createElement('div');pill.id='bv-status';pill.className='bv-status';pill.hidden=true;$('#bv-stage').append(pill);
+  const menu=document.createElement('div');menu.id='bv-menu';menu.className='bv-menu';menu.setAttribute('role','menu');menu.hidden=true;el.append(menu);
+  menu.addEventListener('keydown',e=>{const items=[...menu.querySelectorAll('button')],at=items.indexOf(document.activeElement);if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeMenu(true);}else if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();items[(at+(e.key==='ArrowDown'?1:items.length-1))%items.length]?.focus();}});
+  document.addEventListener('pointerdown',e=>{if(!menu.hidden&&!menu.contains(e.target))closeMenu();},true);
+  const ask=document.createElement('div');ask.id='bv-ask';ask.className='bv-ask';ask.hidden=true;$('#bv-stage').append(ask);
+  const picker=document.createElement('input');picker.type='file';picker.id='bv-file';picker.hidden=true;picker.addEventListener('change',()=>void uploadPicked(picker));el.append(picker);
+  ask.addEventListener('keydown',e=>{if(e.key!=='Escape'&&!(e.key==='Enter'&&!e.target.closest('button')))return;e.preventDefault();e.stopPropagation();const b=ask.querySelector(e.key==='Escape'?'[data-bv=ask-cancel],[data-bv=file-cancel],[data-bv=ask-ok]':'.primary');b?.click();});
+  const tools=document.createElement('button');tools.id='bv-tools';tools.type='button';tools.dataset.bv='tools';tools.setAttribute('aria-label','Browser options: tabs and reload');tools.setAttribute('aria-expanded','false');tools.innerHTML=icon('more');$('#bv-nav').append(tools);
+  const quality=document.createElement('button');quality.id='bv-quality';quality.type='button';quality.dataset.bv='retry-assets';quality.hidden=true;$('#bv-nav').append(quality);
+  mirrorView=new MirrorView($('#bv-stage'),{send,onCommand:command=>{if(command==='address'){$('#bv-addr').focus();$('#bv-addr').select();}else if(command==='new-tab')send({type:'tab',action:'open',url:'about:blank'});else if(command==='close-tab')send({type:'tab',action:'close',tabId:status.activeTabId});else if(command==='next-tab'||command==='previous-tab'){const tabs=status.tabs||[],at=tabs.findIndex(t=>t.id===status.activeTabId),next=tabs[(at+(command==='next-tab'?1:tabs.length-1))%tabs.length];if(next)send({type:'tab',action:'switch',tabId:next.id});}else if(/^tab-[1-9]$/.test(command)){const tabs=status.tabs||[],n=Number(command.slice(4)),t=n===9?tabs.at(-1):tabs[n-1];if(t&&t.id!==status.activeTabId)send({type:'tab',action:'switch',tabId:t.id});}else send({type:command});},onDiagnostics:d=>{quality.dataset.bv='retry-assets';quality.hidden=!d.fonts&&!d.images&&d.drift<4;quality.textContent=d.fonts?'Fonts missing · Retry':d.images?'Images missing · Retry':'Layout differs · Retry';quality.title='Reload Native view resources';},onFallback:reason=>{mirrorFallback=true;send({type:'mirror',on:false});nativeView(false);quality.hidden=false;quality.textContent=reason==='fonts'?'Fonts unavailable · Retry':reason==='captcha'?'Verification · Picture':'This page uses Picture · Retry';quality.dataset.bv='retry-native';toast(reason==='captcha'?'This page needs Picture view.':reason==='security'?'Native view could not start safely. Picture view is ready.':'Switched to Picture view for this page.');},onLoading:on=>{mirrorLoading=on;$('#bv-veil').hidden=!on;$('#bv-veil').textContent=on?'Loading Native view…':'Watching · take control to use it yourself';$('#bv-veil').classList.toggle('mirror-loading',on);},onRelay:on=>{mirrorRelay=on;$('#bv-keys').hidden=!on;},onLink:linkStatus,onMenu:m=>m?openMenu(m):closeMenu()});
   wireInput();
 }
 function open({control = false} = {}) {
   const sheet = $('#bv-sheet');
   const wasHidden=sheet.hidden;
+  if(wasHidden)returnFocus=document.activeElement;
   sheet.hidden = false; document.body.classList.add('bv-open');
-  const shell=sheet.querySelector('.bv-shell'),modal=!matchMedia('(min-width:1200px)').matches;shell.setAttribute('role',modal?'dialog':'region');if(modal)shell.setAttribute('aria-modal','true');else shell.removeAttribute('aria-modal');
-  if(wasHidden&&modal)releaseFocus=trapModal(sheet,{onClose:close});
+  sizeSheet();
   sync(); renderSheet(); paint();
+  syncMirror();
   if (control && status.control !== 'user') takeControl();
-  setTimeout(() => $('#bv-canvas').focus({preventScroll:true}), 50);
+  setTimeout(() => {if(!sheet.hidden&&!mirrorView?.active)$('#bv-canvas').focus({preventScroll:true});}, 50);
 }
-function close() { $('#bv-sheet').hidden = true; document.body.classList.remove('bv-open');releaseFocus?.();releaseFocus=null;sync(); }
+function close() { $('#bv-sheet').hidden = true; document.body.classList.remove('bv-open','bv-expanded');releaseFocus?.();releaseFocus=null;layoutModal=null;if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true});returnFocus=null;syncMirror();sync(); }
 
 // ── input: mouse, touch (tap = click, drag = scroll), keyboard ──────────────
 const VK = {Backspace:8, Tab:9, Enter:13, Escape:27, ArrowLeft:37, ArrowUp:38, ArrowRight:39, ArrowDown:40, Delete:46};
@@ -332,9 +405,9 @@ function wireInput() {
   let resizeTimer = null;
   new ResizeObserver(() => {
     fit(); paint();
-    if (status.control !== 'user' || status.viewport !== 'mobile' || !isPhone()) return;
+    if (status.control !== 'user' || $('#bv-sheet').hidden) return;
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { const r = $('#bv-stage').getBoundingClientRect(); send({type:'viewport', mode:'mobile', width:r.width, height:r.height}); }, 300);
+    resizeTimer = setTimeout(() => { const r = $('#bv-stage').getBoundingClientRect(); if(r.width>0&&r.height>0)send(viewportMessage(r)); }, 120);
   }).observe($('#bv-stage'));
 }
 
@@ -347,6 +420,13 @@ document.addEventListener('click', e => {
   else if (a === 'close') close();
   else if (a === 'control') open({control:true});
   else if (a === 'handback') handBack();
+  else if(a==='tab-open')send({type:'tab',action:'open',url:'about:blank'});
+  else if(a==='tab-switch'||a==='tab-close')send({type:'tab',action:a==='tab-switch'?'switch':'close',tabId:b.dataset.tab});
+  else if(a==='retry-assets'){mirrorView.repaired?.clear();void mirrorView.retryAssets();}
+  else if(a==='retry-native'){mirrorFallback=false;pictureChoice=false;nativeView(true);send({type:'mirror',on:true,retry:true});}
+  else if(a==='layout'){expandedChoice=!$('#bv-sheet').classList.contains('expanded');layoutSheet();}
+  else if(a==='view'){const retryNative=mirrorFallback;pictureChoice=mirrorWanted&&!mirrorFallback;try{localStorage.setItem('seek.browser.view',pictureChoice?'picture':'native');}catch{}mirrorFallback=false;syncMirror();if(retryNative&&!pictureChoice)send({type:'mirror',on:true,retry:true});}
+  else if(a==='tools'){const open=$('#bv-sheet').classList.toggle('tools-open');b.setAttribute('aria-expanded',String(open));requestAnimationFrame(fit);}
   else if (a === 'more') { bannerOpen = !bannerOpen; renderSheet(); }
   else if (a === 'approve-once') decide('approve', 'once',b);
   else if (a === 'approve-task') decide('approve', 'task',b);
@@ -355,9 +435,12 @@ document.addEventListener('click', e => {
   else if (a === 'secure-toggle') { const f = b.closest('.bv-vault')?.querySelector('.bv-secure'); if (f) { f.hidden = !f.hidden; if (!f.hidden) f.elements.username.focus(); } }
   else if (a === 'vaultfill') { b.disabled = true; vaultFill(b.dataset.item).finally(() => { b.disabled = false; }); }
   else if (['back', 'forward', 'reload'].includes(a)) send({type:a});
+  else if (a === 'ask-ok' || a === 'ask-cancel') send({type:'dialog', accept:a === 'ask-ok', text:$('#bv-ask-input')?.value});
+  else if (a === 'file-choose') $('#bv-file').click();
+  else if (a === 'file-cancel') send({type:'upload', token:status.fileChooser?.token, cancel:true});
+  else if (a === 'menu-open' || a === 'menu-copy-link' || a === 'menu-copy') { const m = menuData; closeMenu(true); if (!m) return; if (a === 'menu-open') send({type:'tab', action:'open', url:m.href}); else if (a === 'menu-copy-link') void copyText(m.href, 'Link address copied'); else void copyText(m.text, 'Copied'); }
 });
 document.addEventListener('visibilitychange', sync);
-window.addEventListener('resize',()=>{const sheet=$('#bv-sheet');if(!sheet||sheet.hidden)return;const modal=!matchMedia('(min-width:1200px)').matches,shell=sheet.querySelector('.bv-shell');shell.setAttribute('role',modal?'dialog':'region');if(modal){shell.setAttribute('aria-modal','true');if(!releaseFocus)releaseFocus=trapModal(sheet,{returnTo:$('#watch-browser'),onClose:close});}else{shell.removeAttribute('aria-modal');releaseFocus?.();releaseFocus=null;}});
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#bv-sheet').hidden && document.activeElement?.tagName !== 'INPUT') close(); });
 
 build();

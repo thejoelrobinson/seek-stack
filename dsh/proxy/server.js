@@ -115,10 +115,85 @@ function cookieIdentity(header) {
 
 const identity = req => cookieIdentity(req.headers.cookie);
 
+// CalDAV (Apple Calendar and Reminders) signs in with HTTP Basic, never the cookie. Each device has
+// its own generated password, created and revoked in Seek (work-dav-auth.js writes only scrypt hashes).
+const DAV_FILE = path.join(familyRoot, 'caldav-devices.json');
+const DAV_USER = 'seek';
+let davCache = { mtime: -1, devices: [] };
+const davVerified = new Map();
+function davDevices() {
+  let mtime = 0;
+  try { mtime = fs.statSync(DAV_FILE).mtimeMs; } catch { davCache = { mtime: 0, devices: [] }; davVerified.clear(); return davCache.devices; }
+  if (mtime !== davCache.mtime) {
+    let devices = [];
+    try { devices = JSON.parse(fs.readFileSync(DAV_FILE, 'utf8')).devices || []; } catch {}
+    davCache = { mtime, devices: Array.isArray(devices) ? devices : [] }; davVerified.clear();
+  }
+  return davCache.devices;
+}
+function davDevice(req) {
+  const m = /^Basic\s+([A-Za-z0-9+/=]+)\s*$/i.exec(String(req.headers.authorization || ''));
+  if (!m) return null;
+  const decoded = Buffer.from(m[1], 'base64').toString('utf8'), colon = decoded.indexOf(':');
+  if (colon < 0) return null;
+  const user = decoded.slice(0, colon), pass = decoded.slice(colon + 1);
+  if (!safeEqual(user.toLowerCase(), DAV_USER) || pass.length < 8 || pass.length > 200) return null;
+  const devices = davDevices(), fingerprint = crypto.createHmac('sha256', SECRET).update(pass).digest('hex');
+  // Phones sync in bursts of requests; a verified password skips scrypt until the file changes.
+  const known = davVerified.get(fingerprint);
+  if (known && devices.some(d => d.id === known)) return known;
+  for (const d of devices) {
+    if (typeof d.salt !== 'string' || typeof d.hash !== 'string') continue;
+    const attempt = crypto.scryptSync(pass, Buffer.from(d.salt, 'hex'), 32, { N: 16384, r: 8, p: 1 }).toString('hex');
+    if (safeEqual(attempt, d.hash)) { davVerified.set(fingerprint, d.id); return d.id; }
+  }
+  return null;
+}
+// Paired computers (Seek Desktop) hold a device key: "<id>.<64 hex>", checked against the scrypt
+// hashes Work keeps in desktop-devices.json. They never use the browser cookie.
+const DESKTOP_FILE = path.join(familyRoot, 'desktop-devices.json');
+let desktopCache = { mtime: -1, devices: [] };
+const desktopVerified = new Map();
+function desktopDevice(req) {
+  const m = /^Bearer\s+([0-9a-f-]{36})\.([a-f0-9]{64})\s*$/.exec(String(req.headers.authorization || ''));
+  if (!m) return null;
+  let mtime = 0;
+  try { mtime = fs.statSync(DESKTOP_FILE).mtimeMs; } catch { return null; }
+  if (mtime !== desktopCache.mtime) { let devices = []; try { devices = JSON.parse(fs.readFileSync(DESKTOP_FILE, 'utf8')).devices || []; } catch {} desktopCache = { mtime, devices: Array.isArray(devices) ? devices : [] }; desktopVerified.clear(); }
+  const fingerprint = crypto.createHmac('sha256', SECRET).update(m[0]).digest('hex'), known = desktopVerified.get(fingerprint);
+  if (known && desktopCache.devices.some(d => d.id === known)) return known;
+  const d = desktopCache.devices.find(x => x.id === m[1]);
+  if (!d || typeof d.salt !== 'string' || typeof d.hash !== 'string') return null;
+  const attempt = crypto.scryptSync(m[2], Buffer.from(d.salt, 'hex'), 32, { N: 16384, r: 8, p: 1 }).toString('hex');
+  if (!safeEqual(attempt, d.hash)) return null;
+  desktopVerified.set(fingerprint, d.id); return d.id;
+}
+function proxyDav(req, res) {
+  const ip = requestIp(req), now = Date.now(), recent = (loginAttempts.get(ip) || []).filter(at => now - at < LOGIN_WINDOW_MS);
+  const challenge = { 'WWW-Authenticate': 'Basic realm="Seek Calendar", charset="UTF-8"', 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' };
+  if (recent.length >= LOGIN_ATTEMPTS) { securityEvent('caldav.rate_limited', req, { attempts: recent.length }); res.writeHead(429, { 'Retry-After': '900', 'Cache-Control': 'no-store' }); return res.end('Too many attempts'); }
+  const device = davDevice(req);
+  if (!device) {
+    if (req.headers.authorization) { recent.push(now); loginAttempts.set(ip, recent); securityEvent('caldav.failed', req, { attempts: recent.length }); }
+    req.resume(); res.writeHead(401, challenge); return res.end('Sign in with a Seek device password');
+  }
+  const headers = stripAuth(req.headers);
+  delete headers.cookie;
+  const proxyReq = http.request(
+    { host: TARGET_HOST, port: TARGET_PORT, method: req.method, path: req.url, headers: { ...headers, 'x-seek-dav-device': device, 'x-seek-proxy-release': PROXY_RELEASE } },
+    (proxyRes) => { res.writeHead(proxyRes.statusCode, proxyRes.headers); proxyRes.on('error', () => res.destroy()); proxyRes.pipe(res); },
+  );
+  req.on('error', () => proxyReq.destroy());
+  res.on('error', () => proxyReq.destroy());
+  proxyReq.on('error', (e) => { if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain' }); res.end(`upstream error: ${e.message}\n`); });
+  req.pipe(proxyReq);
+}
+
 function stripAuth(headers) {
   const out = { ...headers };
   delete out.authorization;
   delete out['x-dsh-user'];
+  delete out['x-seek-dav-device'];
   return out;
 }
 
@@ -211,6 +286,20 @@ const server = http.createServer((req, res) => {
     res.writeHead(303, { Location: '/login', 'Cache-Control': 'no-store', 'Set-Cookie': clearCookie(req, COOKIE) });
     return res.end();
   }
+  // Calendar apps discover the server here, then talk CalDAV under /work/dav with a device password.
+  if (url.pathname === '/.well-known/caldav') { res.writeHead(301, { Location: '/work/dav/', 'Cache-Control': 'no-store' }); return res.end(); }
+  if (url.pathname === '/work/dav' || url.pathname.startsWith('/work/dav/')) return proxyDav(req, res);
+  if (url.pathname === '/work/desktop/pair') {
+    const ip = requestIp(req), now = Date.now(), recent = (loginAttempts.get(ip) || []).filter(at => now - at < LOGIN_WINDOW_MS);
+    if (recent.length >= LOGIN_ATTEMPTS) { securityEvent('desktop.pair_rate_limited', req, { attempts: recent.length }); res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '900' }); return res.end('{"error":"Too many attempts. Try again in 15 minutes."}'); }
+    const headers = stripAuth(req.headers); delete headers.cookie;
+    const proxyReq = http.request({ host: TARGET_HOST, port: TARGET_PORT, method: req.method, path: '/work/desktop/pair', headers: { ...headers, 'x-seek-proxy-release': PROXY_RELEASE } }, proxyRes => {
+      if (proxyRes.statusCode !== 200) { recent.push(now); loginAttempts.set(ip, recent); }
+      res.writeHead(proxyRes.statusCode, proxyRes.headers); proxyRes.pipe(res);
+    });
+    req.on('error', () => proxyReq.destroy()); proxyReq.on('error', e => { if (!res.headersSent) res.writeHead(502); res.end(); });
+    return req.pipe(proxyReq);
+  }
   const who = identity(req);
   if (!who) {
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/work' || url.pathname === '/work/' || String(req.headers.accept || '').includes('text/html'))) {
@@ -248,6 +337,25 @@ const server = http.createServer((req, res) => {
 });
 
 server.on('upgrade', (req, socket, head) => {
+  // A paired computer's link: device key only, never the cookie.
+  if (new URL(req.url, 'http://localhost').pathname === '/work/desktop/link') {
+    const device = desktopDevice(req);
+    if (!device) { securityEvent('desktop.link_refused', req); return socket.end('HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'); }
+    socket.on('error', () => socket.destroy());
+    const headers = { ...req.headers }; delete headers.cookie; delete headers['x-dsh-user']; delete headers['x-seek-dav-device'];
+    const proxyReq = http.request({ host: TARGET_HOST, port: TARGET_PORT, method: req.method, path: '/work/desktop/link', headers: { ...headers, 'x-seek-desktop-device': device, 'x-seek-proxy-release': PROXY_RELEASE } });
+    proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+      proxySocket.on('error', () => { proxySocket.destroy(); socket.destroy(); });
+      socket.on('close', () => proxySocket.destroy()); proxySocket.on('close', () => socket.destroy());
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\n${Object.entries(proxyRes.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`);
+      if (proxyHead && proxyHead.length) proxySocket.unshift(proxyHead);
+      proxySocket.pipe(socket).pipe(proxySocket);
+    });
+    proxyReq.on('response', r => { r.resume(); socket.end(`HTTP/1.1 ${r.statusCode} Refused\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`); });
+    proxyReq.on('error', () => socket.destroy());
+    if (head && head.length) proxyReq.write(head);
+    return proxyReq.end();
+  }
   if (!identity(req)||!sameOrigin(req)) {
     // Deliberately NO WWW-Authenticate here: a challenge on a WebSocket
     // handshake is what made the browser re-prompt on every reconnect.
