@@ -17,6 +17,8 @@ import {linkOptions} from './net.js';
 const root=dirname(fileURLToPath(import.meta.url));
 const inputSmoke=process.argv.includes('--smoke-input');
 const smoke=process.argv.includes('--smoke')||inputSmoke;
+// Started with the computer: stay out of sight until Seek asks for or uses this computer.
+const atLogin=process.argv.includes('--login')||(process.platform==='darwin'&&app.getLoginItemSettings().wasOpenedAtLogin);
 if(inputSmoke)app.commandLine.appendSwitch('force-renderer-accessibility');
 if(smoke)app.setPath('userData',join(app.getPath('temp'),'seek-bridge-smoke-'+process.pid));
 let link=null;
@@ -76,8 +78,8 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   await refreshCapabilities();
   electronSession.defaultSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
   const opts={webPreferences:{preload:join(root,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}};
-  panel=new BrowserWindow({width:480,height:760,show:!smoke,...opts});
-  pet=new BrowserWindow({width:185,height:160,transparent:true,frame:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,focusable:false,show:!smoke,...opts});
+  panel=new BrowserWindow({width:480,height:760,show:!smoke&&!atLogin,...opts});
+  pet=new BrowserWindow({width:185,height:160,transparent:true,frame:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,focusable:false,show:!smoke&&!atLogin,...opts});
   // Only the small grip accepts clicks; the character itself forwards clicks to the desktop.
   pet.setIgnoreMouseEvents(true,{forward:true});
   pet.setPosition(d.workArea.x+d.workArea.width-205,d.workArea.y+d.workArea.height-180);
@@ -108,8 +110,12 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
     grant:(task,title)=>grantTask(task,title),
     onChange:s=>{for(const w of [panel,pet])if(w&&!w.isDestroyed())w.webContents.send('link',s);if(s.requests.length&&panel&&!panel.isDestroyed()&&control.state!=='agent'){if(panel.isMinimized())panel.restore();panel.showInactive();}},
     log:m=>console.warn(m)});
+  // Start with the computer once paired, so Seek can reach it after a restart (Windows and macOS).
+  const loginItem=()=>({openAtLogin:app.getLoginItemSettings({args:['--login']}).openAtLogin});
+  ipcMain.handle('login-item',()=>loginItem());
+  ipcMain.handle('set-login-item',(event,value)=>{requirePanel(event);app.setLoginItemSettings({openAtLogin:!!value,args:['--login']});return loginItem();});
   ipcMain.handle('link-status',()=>link.status());
-  ipcMain.handle('link-pair',(event,input)=>{requirePanel(event);return link.pair(input||{});});
+  ipcMain.handle('link-pair',async(event,input)=>{requirePanel(event);const s=await link.pair(input||{});if(app.isPackaged&&process.platform!=='linux')app.setLoginItemSettings({openAtLogin:true,args:['--login']});return s;});
   ipcMain.handle('link-unpair',event=>{requirePanel(event);return link.unpair();});
   ipcMain.handle('link-remote-grant',(event,value)=>{requirePanel(event);return link.setRemoteGrant(!!value);});
   ipcMain.handle('link-answer',(event,{taskId,allow}={})=>{requirePanel(event);return link.answer(String(taskId||''),!!allow);});

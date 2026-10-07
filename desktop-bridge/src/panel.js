@@ -28,8 +28,10 @@ const renderLink=s=>{
  }else{
   const remote=el('input',{type:'checkbox',checked:s.remoteGrant});remote.onchange=()=>window.bridge.setRemoteGrant(remote.checked).then(renderLink).catch(linkError);
   const out=el('button',{type:'button',textContent:'Disconnect from Seek'});out.onclick=()=>{if(confirm('Disconnect this computer from Seek? You can pair it again with a new code.'))window.bridge.unpair().then(renderLink).catch(linkError);};
+  const start=el('input',{type:'checkbox'});window.bridge.loginItem().then(v=>{start.checked=v.openAtLogin;}).catch(()=>{start.disabled=true;});start.onchange=()=>window.bridge.setLoginItem(start.checked).catch(linkError);
   body.replaceChildren(el('p',{},el('span',{className:'dot'+(s.online?' on':'')}),`${s.online?'Connected':'Reconnecting'} to ${new URL(s.server).host} as `,el('b',{textContent:s.name})),
-   el('label',{className:'check'},remote,el('span',{textContent:'Let me approve Seek from my phone when I’m away'})),out);
+   el('label',{className:'check'},remote,el('span',{textContent:'Let me approve Seek from my phone when I’m away'})),
+   el('label',{className:'check'},start,el('span',{textContent:'Start Seek Desktop with this computer (stays hidden until Seek needs it)'})),out);
  }
  linkError(s.lastError?{message:s.lastError}:null);
  const list=$('#request-list');$('#requests').hidden=!s.requests?.length;
