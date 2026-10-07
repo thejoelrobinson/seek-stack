@@ -227,12 +227,21 @@ class AccessibilityBridge:
                 self.xdo("type", "--clearmodifiers", "--delay", "0", "--", command["text"])
             else:
                 self.xdo("key", "--clearmodifiers", "BackSpace")
-            text = self.iface(target, "text")
-            if text is not None:
-                value = self.call("Text", "get_text", text, 0, min(self.call("Text", "get_character_count", text), 4096))
-                if value != command["text"]:
-                    raise RuntimeError("The field did not take the new text")
-            return dict(ok=True)
+            # Toolkits update the accessible text shortly after the keystrokes land.
+            value = None
+            for _ in range(15):
+                try:
+                    target.clear_cache()
+                    text = self.iface(target, "text")
+                    if text is None:
+                        return dict(ok=True)
+                    value = self.call("Text", "get_text", text, 0, min(self.call("Text", "get_character_count", text), 4096))
+                except Exception:
+                    value = None
+                if value == command["text"]:
+                    return dict(ok=True)
+                time.sleep(0.1)
+            raise RuntimeError("The field did not take the new text (it reads %r)" % (value if value is None else value[:80]))
         if kind in ("move", "click", "scroll"):
             self.xdo("mousemove", "--sync", round(command["x"]), round(command["y"]))
         if kind == "click":
