@@ -173,7 +173,7 @@ try {
   // The result of a form submission is never reloaded behind the user's back (it could resend it).
   await c.navigate(base + '/form');
   await c.click({x: 30, y: 15});
-  await new Promise(r => setTimeout(r, 400));
+  for (let i = 0; i < 50 && loads.posted < 1; i++) await new Promise(r => setTimeout(r, 100));
   assert.equal(loads.posted, 1);
   await c.takeControl();
   await c.setViewport('mobile', {width: 392, height: 451});
