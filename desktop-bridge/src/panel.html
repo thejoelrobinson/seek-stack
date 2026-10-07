@@ -1,0 +1,22 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'"><title>Seek Desktop</title><link rel="stylesheet" href="buddy.css">
+<style>
+:root{--bg:#f8f6fb;--surface:#fff;--line:#e3dcec;--ink:#2b2234;--muted:#6d6278;--accent:#6f53a1;--accent-soft:#efe9f8;--ok:#2f7a55;--bad:#a8344d;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#18151d;--surface:#221e29;--line:#3a3344;--ink:#efeaf4;--muted:#b3a8bf;--accent:#a68bd6;--accent-soft:#2d2638;--ok:#8fd3ad;--bad:#f0a2b2}}
+*{box-sizing:border-box}body{font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:20px 20px 88px}
+header{display:flex;align-items:center;gap:14px;margin-bottom:16px}.buddy{--bs:72px!important;flex:none}h1{font-size:20px;margin:0;letter-spacing:-.01em}#activity{margin:2px 0 0;color:var(--muted);font-size:13px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 12px}section h2{font-size:14px;margin:0 0 8px}section p{margin:0 0 10px;color:var(--muted);font-size:13px}
+label{display:block;font-size:13px;font-weight:500;margin:10px 0 0}input,select{font:inherit;width:100%;padding:9px 11px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);margin-top:5px}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px}.check{display:flex;gap:9px;align-items:flex-start;font-weight:400;color:var(--ink)}.check input{width:auto;margin:3px 0 0}
+button{font:inherit;font-weight:600;padding:9px 14px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;margin-top:10px}button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row button{margin-top:6px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--muted)}.dot.on{background:var(--ok)}
+.request{border:1px solid var(--accent);background:var(--accent-soft);border-radius:12px;padding:12px;margin-top:8px}.request strong{display:block}.error{color:var(--bad);font-size:13px;margin-top:8px}
+#stop{position:fixed;bottom:14px;left:20px;width:calc(100% - 40px);background:var(--bad);border-color:var(--bad);color:#fff;padding:12px;z-index:10;box-shadow:0 -8px 20px var(--bg)}
+details{margin-top:6px}summary{cursor:pointer;color:var(--muted);font-size:13px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:var(--muted)}.small{font-size:12px;color:var(--muted)}
+</style>
+<header><span class="buddy" data-buddy="hero"></span><div><h1>Seek Desktop</h1><p id="activity" role="status">Ready</p></div></header>
+<section id="requests" hidden><h2>Seek would like to use this computer</h2><p>It shares your mouse and keyboard. Take over any time with <b>Ctrl/Command + Alt + Shift + S</b>.</p><div id="request-list"></div></section>
+<section id="link"><h2>Connect to Seek</h2><div id="link-body"></div><p class="error" id="link-error" hidden></p></section>
+<section><h2>What Seek can use</h2><p id="capability">Checking…</p><label>Screen<select id="display"></select></label><div id="window-slot"></div></section>
+<details><summary>Advanced</summary><section><h2>Give a task control by ID</h2><p>Only needed without a Seek connection.</p><label>Task ID<input id="task" placeholder="Task ID from Seek" autocomplete="off"></label><button id="grant">Give this task control</button></section><button id="show-pet">Show the companion</button><pre id="details"></pre></details>
+<button id="stop">Take control / Stop</button>
+<script type="module" src="panel.js"></script></html>

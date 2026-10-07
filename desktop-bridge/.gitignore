@@ -1,0 +1,7 @@
+node_modules/
+native/seek-input
+smoke-output/
+__pycache__/
+dist/
+agent-connection.json
+dist-local/
