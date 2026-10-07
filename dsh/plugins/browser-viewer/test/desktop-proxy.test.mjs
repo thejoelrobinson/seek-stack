@@ -9,6 +9,7 @@ import {fileURLToPath} from 'node:url';
 import {WebSocketServer,WebSocket} from 'ws';
 import {removeFixture} from './fixture-cleanup.mjs';
 import {DesktopDevices} from '../lib/work-desktop.js';
+import {identity} from '../lib/desktop/secure-link.js';
 
 test('proxy: pairing needs no session; the computer link needs a device key and never a cookie',{timeout:25000},async t=>{
   const root=await mkdtemp(join(tmpdir(),'seek-deskproxy-')),seen=[];
@@ -17,7 +18,7 @@ test('proxy: pairing needs no session; the computer link needs a device key and 
   upstream.on('upgrade',(req,socket,head)=>wss.handleUpgrade(req,socket,head,ws=>{links.push({device:req.headers['x-seek-desktop-device'],cookie:!!req.headers.cookie,authorization:req.headers.authorization});ws.send('hello');}));
   await new Promise(r=>upstream.listen(0,'127.0.0.1',r));
   await copyFile(fileURLToPath(new URL('../../../proxy/server.js',import.meta.url)),join(root,'server.cjs'));await copyFile(fileURLToPath(new URL('../../../proxy/work-session-store.cjs',import.meta.url)),join(root,'work-session-store.cjs'));await writeFile(join(root,'.secret'),'synthetic-secret');
-  const work=join(root,'work'),devices=new DesktopDevices(work),{device,secret}=await devices.create({name:'Studio Mac',os:'darwin'});
+  const work=join(root,'work'),devices=new DesktopDevices(work),{device,secret}=await devices.create({name:'Studio Mac',os:'darwin',publicKey:identity().publicKey});
   const child=spawn(process.execPath,[join(root,'server.cjs')],{env:{...process.env,DSH_PROXY_USER:'fixture-owner',DSH_PROXY_PASS:'fixture-pass',DSH_WORK_HOME:work,DSH_PROXY_LISTEN_PORT:'0',DSH_PROXY_TARGET_PORT:String(upstream.address().port)},windowsHide:true,stdio:['ignore','pipe','pipe']});
   const base=await new Promise((resolve,reject)=>{let out='';const timeout=setTimeout(()=>reject(new Error('Fixture proxy did not start')),5000);child.once('exit',code=>{clearTimeout(timeout);reject(new Error('Fixture proxy exited '+code));});child.stdout.on('data',chunk=>{out+=chunk;const match=/listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);if(match){clearTimeout(timeout);resolve(match[1]);}});});
   t.after(async()=>{child.kill();await new Promise(r=>child.exitCode!==null||child.signalCode!==null?r():child.once('exit',r));wss.close();upstream.closeAllConnections();await new Promise(r=>upstream.close(r));await removeFixture(root,'seek-deskproxy-');});

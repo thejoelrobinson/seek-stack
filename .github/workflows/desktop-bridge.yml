@@ -38,6 +38,9 @@ jobs:
           python-version: '3.12'
       - run: npm run check
       - run: npm test
+      - name: Authenticated WebRTC through a real TURN relay
+        if: runner.os == 'Linux'
+        run: npm run smoke:turn
       - run: npm run test:python
       - run: npm audit --audit-level=high
       - name: Verify release version
@@ -98,7 +101,7 @@ jobs:
           # Artifacts keep their folders: installers in dist/, smoke screenshots (not released) in smoke-output/.
           cd release/dist
           sha256sum * > SHA256SUMS
-          printf '%s\n' 'Seek Desktop developer preview. Unsigned installers; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI and X11 at 100% scaling. Windows selected-window fill/invoke support background operation. Pair with Seek in Settings › Computers. Wayland control and screen streaming remain unfinished. See desktop-bridge/README.md for permissions and validation limits.' > "$RUNNER_TEMP/notes.md"
+          printf '%s\n' 'Seek Desktop developer preview. Desktop control uses authenticated WebRTC with verified device keys. Connect using a one-use link in Seek Settings > Computers; identities verify automatically. Old pairings require pairing again. Configure an Internet relay once in Seek Settings > Computers > Connections. Unsigned installers; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI, X11 at 100% scaling and an unlocked protected keychain. Windows selected-window fill/invoke support background operation. Wayland control and human screen streaming remain unfinished. See desktop-bridge/SECURITY.md for the trust boundary and validation limits.' > "$RUNNER_TEMP/notes.md"
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --verify-tag --draft --prerelease --title "Seek Desktop $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
           fi

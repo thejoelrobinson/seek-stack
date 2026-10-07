@@ -12,9 +12,13 @@ if (Test-Path -LiteralPath $destination) {
   Copy-Item -LiteralPath $destination -Destination $backup -Recurse
 }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
-foreach ($item in @('lib','skills','test','package.json','README.md')) {
+foreach ($item in @('lib','skills','test','package.json','package-lock.json','README.md')) {
   Copy-Item -LiteralPath (Join-Path $PSScriptRoot $item) -Destination $destination -Recurse -Force
 }
+# The WebRTC transport has runtime dependencies. Install the locked production
+# tree alongside the copied plugin; harness-provided packages still resolve above it.
+& npm ci --omit=dev --ignore-scripts --prefix $destination
+if ($LASTEXITCODE -ne 0) { throw 'Seek Work runtime dependency installation failed; restore the code backup before restarting.' }
 if (Test-Path -LiteralPath $qwenDestination) {
   $backup = Join-Path $DshHome ('browser\backups\qwen-image-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
   New-Item -ItemType Directory -Path $backup -Force | Out-Null

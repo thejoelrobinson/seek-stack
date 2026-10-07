@@ -29,4 +29,8 @@
 .dk-list small.dk-on{color:var(--ok)}
 .dk-ic{width:36px;height:36px;border-radius:var(--r);display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-ink);flex:none}
 .dk-list button{height:var(--h-sm);padding:0 12px;flex:none}
+.dk-invite-actions{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin:var(--sp-4) 0}
+.dk-list details{margin-top:6px}.dk-list summary{font:var(--type-caption);color:var(--muted);cursor:pointer}
+.dk-card form label{display:block;font:var(--type-small);margin:var(--sp-3) 0}.dk-card form input:not([type=checkbox]),.dk-card form select{display:block;width:100%;margin-top:6px}.dk-card form .dk-check{display:flex;align-items:center;gap:8px}
+@media(max-width:640px){.dk-list li{flex-wrap:wrap}.dk-list li>div{flex-basis:calc(100% - 64px)}.dk-invite-actions>*{width:100%}}
 @media(max-width:640px){.dk-fields{grid-template-columns:1fr}.dk-primary{padding:var(--sp-4)}.dk a.button{width:100%;justify-content:center;height:var(--h-lg)}}

@@ -1,4 +1,4 @@
-# Seek Desktop Bridge — developer preview
+# Seek Desktop Bridge 0.4 — developer preview
 
 Unified Electron companion with a task-bound local agent API, pairing with a Seek server, and the Seek host adapter. Install it on any Windows, Mac or Linux computer, pair it in Seek (Settings › Computers), and Seek can use that computer's apps for a task once you allow it.
 
@@ -38,7 +38,13 @@ Local checks: `npm run check`, `npm test`, `npm run test:python`, `npm run smoke
 
 ## Pairing and remote control
 
-In Seek, open Settings › Computers and create a pairing code (single use, ten minutes). In the companion, enter the Seek address and the code. The companion receives its own device key (stored encrypted with the OS keychain/DPAPI through Electron safeStorage; Seek keeps only a scrypt hash) and keeps one outbound WebSocket to `/work/desktop/link`. Nothing listens on the network: the local API stays loopback-only, and Seek's requests over the link are relayed to it, so sessions, leases, Stop and the takeover shortcut apply unchanged. Only `/status`, `/heartbeat`, `/observe`, `/action` and `/stop` are relayed.
+In Seek, open Settings › Computers and choose Add a computer. Open Seek Desktop from the connection link and approve it in the app. To connect another computer, copy the link and paste it in Seek Desktop there. The link works once for ten minutes and carries Seek's pinned identity plus a 256-bit secret. The app proves possession without transmitting that secret, verifies Seek's signed response, and connects automatically. No address or fingerprint needs typing. Keep the invitation private. The older code flow remains under Older apps and still requires security-code verification on both endpoints. Older pairings must be removed and paired again; they cannot use the old control transport.
+
+The companion protects its device secret and Ed25519 identity key with the OS keychain/DPAPI. Pairing refuses unavailable keychains and Linux's unprotected `basic_text` backend. Seek keeps a scrypt hash of the device secret, the pinned public identity, and its own persistent private identity in the trusted Work directory. Back up `desktop-identity.json` privately with that directory; losing it requires pairing devices again.
+
+The outbound WebSocket at `/work/desktop/link` carries only signed WebRTC connection descriptions. Complete descriptions, including DTLS fingerprints, are authenticated with the pinned identities and two fresh challenges. Task titles, approvals, state, observations and actions travel on an ordered WebRTC DTLS/SCTP data channel. The local API stays loopback-only; WebRTC opens ICE transport sockets and checks consent. Only `/status`, `/heartbeat`, `/observe`, `/action` and `/stop` are exposed, with the existing sessions, leases, Stop and takeover checks.
+
+A lost or overloaded secure connection revokes the local grant. Reconnection never restores a grant or repeats uncertain input. Messages, pending requests and reassembly are bounded. There is no WebSocket fallback for desktop content. The original companion and desktop tools are preserved. See [SECURITY.md](SECURITY.md) for the exact trust boundary and Internet relay setup.
 
 A task gets a computer only after the person allows it: Seek asks "Allow on <computer>?" in the task, the Inbox and Discord, and the companion shows the same request with Allow and Not now. Answering in Seek works only for computers that opted in when pairing ("Let me approve Seek from my phone"); the setting can be changed in the companion at any time. Removing a computer in Seek closes its link at once. The proxy accepts the pairing call without a session (the code is the credential, rate-limited) and the link only with a device key, never the browser cookie.
 

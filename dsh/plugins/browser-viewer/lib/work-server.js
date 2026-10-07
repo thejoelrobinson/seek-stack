@@ -14,7 +14,7 @@ import {SecurityLog} from './work-security.js';
 import {WorkToolScope} from './work-tool-scope.js';
 import {WorkHarness} from './work-harness.js';
 import {noteAction,continuationDecision,taskActionLimit,resetProgress} from './work-progress.js';
-import {FinanceService,financeTools} from './work-finance.js';
+import {FinanceService,financeTools,dpapi} from './work-finance.js';
 import {DiscordConnection} from './work-discord.js';
 import {PipedreamConnection} from './work-pipedream.js';
 import {DreamingService} from './work-dreaming.js';
@@ -47,6 +47,7 @@ import {calendarTools} from './work-calendar-tools.js';
 import {DesktopRuntime} from './desktop/runtime.js';
 import {buildDesktopTools} from './desktop/tools.js';
 import {DesktopDevices,DesktopHub,DesktopControl} from './work-desktop.js';
+import {DesktopRelay} from './work-desktop-relay.js';
 import {WebSocketServer} from 'ws';
 
 const liveStates = new Set(['running','queued']);
@@ -571,7 +572,7 @@ export async function mountWork(ctx,controller,isTrusted) {
     readFileImpl:async()=>{for(const file of desktopFiles){try{return await readFile(file,'utf8');}catch(e){if(e.code!=='ENOENT')throw e;}}throw new Error('Seek Desktop is not running on this PC. Ask the user to start it and grant this task in its panel.');},
     resolveOwner:exec=>{const t=engine.store.tasks.find(x=>x.sessionId===exec?.agent?.id);if(!t||t.eval||t.proactive)return null;return {taskId:t.id,sessionId:t.sessionId,status:t.status,child:false};}});
   // Computers paired from anywhere (Settings › Computers) reach Seek over one authenticated link each.
-  const desktopDevices=new DesktopDevices(root),desktopHub=new DesktopHub({devices:desktopDevices,log:ctx.logger});
+  const desktopRelay=new DesktopRelay(root,{protect:dpapi}),desktopDevices=new DesktopDevices(root),desktopHub=new DesktopHub({devices:desktopDevices,log:ctx.logger,ice:options=>desktopRelay.ice(options)});
   const desktopControl=new DesktopControl({hub:desktopHub,local:desktop,
     resolveOwner:exec=>{const t=engine.store.tasks.find(x=>x.sessionId===exec?.agent?.id);if(!t||t.eval||t.proactive)return null;return {taskId:t.id,sessionId:t.sessionId,status:t.status,child:false};},
     // No computer allows this task yet: ask the user (Seek, the Inbox, Discord), and the computers themselves.
@@ -897,7 +898,7 @@ export async function mountWork(ctx,controller,isTrusted) {
         json(res,200,{...calendar.range(from,to),reminders:calendar.activeReminders(),devices:(await davDevices.list()).length});return;}
       if(req.method==='GET'&&url.pathname==='/work/api/desktop'){
         const manifest=JSON.parse(await readFile(join(downloadsRoot,'manifest.json'),'utf8').catch(()=>'{"files":[]}'));
-        json(res,200,{computers:await desktopHub.machines(),downloads:manifest,thisPc:!!(await desktopControl.localStatus()),server:davHost(req)});return;}
+        json(res,200,{computers:await desktopHub.machines(),downloads:manifest,thisPc:!!(await desktopControl.localStatus()),server:davHost(req),relay:await desktopRelay.status()});return;}
       if(req.method==='GET'&&url.pathname==='/work/api/calendar/devices'){json(res,200,{devices:await davDevices.list(),server:davHost(req),username:DAV_USER,path:DAV_BASE+'/'});return;}
       if(req.method==='GET'&&url.pathname==='/work/api/calendar/profile'){
         const ticket=profileDownloads.get(url.searchParams.get('ticket')||'');profileDownloads.delete(url.searchParams.get('ticket')||'');
@@ -970,7 +971,9 @@ export async function mountWork(ctx,controller,isTrusted) {
           else throw new Error('Choose save, complete or delete.');
         }
         else if(url.pathname==='/work/api/desktop/code')value=desktopHub.createCode();
-        else if(url.pathname==='/work/api/desktop/device'){if(body.action==='rename')value=await desktopHub.rename(String(body.id||''),body.name);else if(body.action==='remove'){await desktopHub.remove(String(body.id||''));value={removed:true};}else throw new Error('Choose rename or remove.');}
+        else if(url.pathname==='/work/api/desktop/invitation')value=await desktopHub.createInvitation('https://'+davHost(req));
+        else if(url.pathname==='/work/api/desktop/relay')value=await desktopRelay.configure(body);
+        else if(url.pathname==='/work/api/desktop/device'){if(body.action==='rename')value=await desktopHub.rename(String(body.id||''),body.name);else if(body.action==='verify')value=await desktopHub.confirm(String(body.id||''),body.code);else if(body.action==='remove'){await desktopHub.remove(String(body.id||''));value={removed:true};}else throw new Error('Choose rename, verify or remove.');}
         else if(url.pathname==='/work/api/calendar/reminder')value=calendar.actOnReminder(String(body.key||''),String(body.action||''),body.minutes);
         else if(url.pathname==='/work/api/calendar/settings')value=calendar.configure(body);
         else if(url.pathname==='/work/api/calendar/devices'){

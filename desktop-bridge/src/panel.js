@@ -1,7 +1,7 @@
 import './buddy.js';
 const $=s=>document.querySelector(s);
 const el=(tag,props={},...kids)=>{const n=Object.assign(document.createElement(tag),props);n.append(...kids);return n;};
-let latest,linkState;
+let latest,linkState,invitationText='';
 const error=e=>{$('#activity').textContent=e.message;};
 const linkError=e=>{const p=$('#link-error');p.textContent=e?.message||'';p.hidden=!e;};
 const render=s=>{
@@ -15,6 +15,16 @@ const render=s=>{
 const renderLink=s=>{
  linkState=s;const body=$('#link-body');
  if(!s.paired){
+  const simple=el('form'),invite=el('input',{name:'invitation',value:invitationText,placeholder:'Paste your connection link',autocomplete:'off',required:true,maxLength:2048});
+  const preview=el('p',{className:'small'});
+  function showOrigin(){try{const u=new URL(invite.value);const origin=new URL(u.searchParams.get('server'));preview.textContent='Connect to '+origin.host;}catch{preview.textContent='Open Seek › Settings › Computers and choose Add a computer.';}}
+  invite.oninput=()=>{invitationText=invite.value;showOrigin();};showOrigin();
+  const name=el('input',{name:'name',value:s.defaultName||'',maxLength:60}),remote=el('input',{type:'checkbox',checked:true}),connect=el('button',{className:'primary',type:'submit',textContent:'Connect this computer'});
+  const inviteLabel=el('label',{},'Connection link',invite);
+  const linkEntry=invitationText?el('details',{},el('summary',{textContent:'Use another connection link'}),inviteLabel):inviteLabel;
+  simple.append(el('p',{textContent:'Your devices verify each other automatically. Approve this connection to make the computer available in Seek.'}),preview,linkEntry,
+    el('label',{},'Computer name',name),el('label',{className:'check'},remote,el('span',{textContent:'Let me approve tasks from my phone'})),connect);
+  simple.onsubmit=e=>{e.preventDefault();connect.disabled=true;linkError(null);window.bridge.pair({invitation:invite.value,name:name.value,remoteGrant:remote.checked}).then(result=>{invitationText='';renderLink(result);}).catch(linkError).finally(()=>{connect.disabled=false;});};
   const form=el('form',{id:'pair'});
   form.append(el('p',{textContent:'In Seek, open Settings › Computers and choose Add a computer to get a code.'}),
    el('label',{},'Seek address',el('input',{name:'server',value:'https://seek.joelcrobinson.com',autocomplete:'off',required:true})),
@@ -24,14 +34,23 @@ const renderLink=s=>{
    el('button',{className:'primary',type:'submit',textContent:'Connect'}));
   form.onsubmit=e=>{e.preventDefault();const f=new FormData(form),btn=form.querySelector('button');btn.disabled=true;linkError(null);
    window.bridge.pair({server:f.get('server'),code:f.get('code'),name:f.get('name'),remoteGrant:f.get('remote')==='on'}).then(renderLink).catch(linkError).finally(()=>{btn.disabled=false;});};
-  body.replaceChildren(form);
+  const advanced=el('details',{},el('summary',{textContent:'Use an older pairing code'}),form);body.replaceChildren(simple,advanced);
  }else{
   const remote=el('input',{type:'checkbox',checked:s.remoteGrant});remote.onchange=()=>window.bridge.setRemoteGrant(remote.checked).then(renderLink).catch(linkError);
   const out=el('button',{type:'button',textContent:'Disconnect from Seek'});out.onclick=()=>{if(confirm('Disconnect this computer from Seek? You can pair it again with a new code.'))window.bridge.unpair().then(renderLink).catch(linkError);};
   const start=el('input',{type:'checkbox'});window.bridge.loginItem().then(v=>{start.checked=v.openAtLogin;}).catch(()=>{start.disabled=true;});start.onchange=()=>window.bridge.setLoginItem(start.checked).catch(linkError);
-  body.replaceChildren(el('p',{},el('span',{className:'dot'+(s.online?' on':'')}),`${s.online?'Connected':'Reconnecting'} to ${new URL(s.server).host} as `,el('b',{textContent:s.name})),
+  body.replaceChildren(el('p',{},el('span',{className:'dot'+(s.online?' on':'')}),`${s.online?'Encrypted WebRTC connection':s.verified?'Connecting securely':'Verify this computer'} · ${new URL(s.server).host} · `,el('b',{textContent:s.name})),
    el('label',{className:'check'},remote,el('span',{textContent:'Let me approve Seek from my phone when I’m away'})),
    el('label',{className:'check'},start,el('span',{textContent:'Start Seek Desktop with this computer (stays hidden until Seek needs it)'})),out);
+  if(s.verificationCode){
+   if(s.verified)body.append(el('details',{},el('summary',{textContent:'Device identity'}),el('p',{className:'small',textContent:'Verified with your Seek. Compare this code if you want an additional check.'}),el('code',{textContent:s.verificationCode})));
+   else body.append(el('p',{className:'small',textContent:'Security code'}),el('code',{textContent:s.verificationCode}));
+   if(!s.verified){
+    const form=el('form'),input=el('input',{placeholder:'Security code shown in Seek',autocomplete:'off',required:true,maxLength:19}),button=el('button',{className:'primary',type:'submit',textContent:'Verify connection'});
+    form.append(el('p',{textContent:'Open Seek › Settings › Computers. Compare both security codes, then enter the code shown there. Verify on Seek too. Access stays disabled until both devices are verified.'}),input,button);
+    form.onsubmit=e=>{e.preventDefault();button.disabled=true;window.bridge.confirmLink(input.value).then(renderLink).catch(linkError).finally(()=>{button.disabled=false;});};body.append(form);
+   }
+  }
  }
  linkError(s.lastError?{message:s.lastError}:null);
  const list=$('#request-list');$('#requests').hidden=!s.requests?.length;
@@ -40,6 +59,8 @@ const renderLink=s=>{
   return el('div',{className:'request'},el('strong',{textContent:r.title}),el('span',{className:'small',textContent:r.stale?'Waiting for the connection to Seek…':'Seek asked just now'}),el('div',{className:'row'},allow,deny));}));
 };
 window.bridge.onState(render);window.bridge.onLink(renderLink);
+function receiveInvitation(value){if(!value)return;if(linkState?.paired){linkError({message:'This computer is already connected. Disconnect it before using another connection link.'});return;}invitationText=value;if(linkState)renderLink(linkState);}
+window.bridge.onInvitation(receiveInvitation);window.bridge.invitation().then(receiveInvitation).catch(linkError);
 window.bridge.status().then(render).catch(error);window.bridge.linkStatus().then(renderLink).catch(linkError);
 $('#grant').onclick=()=>window.bridge.grant($('#task').value).then(render).catch(error);
 $('#stop').onclick=()=>window.bridge.stop().then(render).catch(error);

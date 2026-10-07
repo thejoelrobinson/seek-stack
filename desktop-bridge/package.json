@@ -1,6 +1,6 @@
 {
   "name": "seek-desktop-bridge",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "main": "src/main.js",
@@ -10,6 +10,7 @@
     "check": "node scripts/check.mjs",
     "build:native": "node scripts/native.mjs",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:turn": "node scripts/turn-smoke.mjs",
     "smoke:packaged": "node scripts/smoke.mjs --packaged",
     "build:dir": "npm run build:native && electron-builder --dir --publish never",
     "build": "npm run build:native && electron-builder --publish never",
@@ -26,6 +27,7 @@
   "author": "Joel Robinson",
   "license": "UNLICENSED",
   "dependencies": {
+    "werift": "0.25.0",
     "ws": "^8.22.0"
   },
   "homepage": "https://github.com/thejoelrobinson/seek-stack"

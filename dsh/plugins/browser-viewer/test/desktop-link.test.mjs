@@ -5,9 +5,27 @@ import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DesktopDevices,DesktopHub,DesktopControl} from '../lib/work-desktop.js';
+import {identity,nonce,signSignal} from '../lib/desktop/secure-link.js';
 
-class FakeWs extends EventEmitter{constructor(){super();this.sent=[];this.closed=null;}send(t){this.sent.push(JSON.parse(t));}ping(){}close(code){this.closed=code;this.emit('close',code);}reply(m){this.emit('message',Buffer.from(JSON.stringify(m)));}}
-async function setup(){const dir=await mkdtemp(join(tmpdir(),'seek-desk-'));const devices=new DesktopDevices(dir),hub=new DesktopHub({devices,log:{warn(){}}});return {dir,devices,hub,done:()=>{hub.close();return rm(dir,{recursive:true,force:true});}};}
+class FakeWs extends EventEmitter{constructor(){super();this.sent=[];this.signals=[];this.closed=null;}send(t){this.signals.push(JSON.parse(t));}ping(){}close(code){if(this.closed!==null)return;this.closed=code;this.emit('close',code);}reply(m){this.peer.options.onMessage(m);}raw(m){this.emit('message',Buffer.from(JSON.stringify(m)));}}
+const tick=()=>new Promise(r=>setImmediate(r));
+const sdp='v=0\r\na=fingerprint:sha-256 '+Array(32).fill('AB').join(':')+'\r\n';
+async function setup(){
+ const dir=await mkdtemp(join(tmpdir(),'seek-desk-')),keys=identity(),peers=[];
+ const devices=new DesktopDevices(dir),hub=new DesktopHub({devices,log:{warn(){}},ice:()=>({iceServers:[],policy:'all'}),peerFactory:async options=>{
+  const peer={options,ready:false,async answer(){return {type:'answer',sdp};},send(m){peer.ws.sent.push(m);},close(){this.ready=false;}};peers.push(peer);return peer;
+ }});
+ const pair=hub.pair.bind(hub);hub.pair=body=>pair({...body,protocol:1,publicKey:keys.publicKey});
+ async function attach(ws,device){
+  const listed=(await devices.list()).find(d=>d.id===device.id);await hub.confirm(device.id,listed.verificationCode);
+  hub.attach(ws,{...device,publicKey:keys.publicKey,verified:true});
+  const end=Date.now()+5000;while(!ws.signals.length){if(Date.now()>end)throw Error('Secure handshake did not start');await new Promise(r=>setTimeout(r,10));}
+  const ready=ws.signals.at(-1);assert.equal(ready.kind,'ready');await hub.signal(hub.links.get(device.id),signSignal(keys.privateKey,{...ready,kind:'offer',deviceNonce:nonce(),sdp}));
+  const peer=peers.at(-1);peer.ws=ws;ws.peer=peer;peer.ready=true;peer.options.onOpen();
+  assert.ok(ws.signals.every(m=>m.type==='rtc'));
+ }
+ return {dir,devices,hub,keys,attach,done:()=>{hub.close();return rm(dir,{recursive:true,force:true});}};
+}
 
 test('pairing: single-use codes, hashed keys, lockout after repeated wrong codes',async()=>{
   const {dir,devices,hub,done}=await setup();
@@ -27,11 +45,11 @@ test('pairing: single-use codes, hashed keys, lockout after repeated wrong codes
 });
 
 test('a linked computer: requests round-trip, task routing, grants and answers',async()=>{
-  const {hub,done}=await setup();
+  const {hub,attach,done}=await setup();
   try{
     const {code}=hub.createCode(),p=await hub.pair({code,name:'Studio Mac',os:'darwin',remoteGrant:false});
     const device=(await hub.devices.list())[0],ws=new FakeWs(),events=[];hub.on(e=>events.push(e));
-    hub.attach(ws,{...device,id:p.deviceId});ws.reply({type:'hello',name:'Studio Mac',os:'darwin',version:'0.3.0',remoteGrant:true});
+    await attach(ws,{...device,id:p.deviceId});ws.reply({type:'hello',name:'Studio Mac',os:'darwin',version:'0.3.0',remoteGrant:true});
     assert.equal((await hub.machines())[0].online,true);assert.equal((await hub.machines())[0].remoteGrant,true);
     // The bridge client's HTTP calls travel over the link.
     const client=hub.clientFor(p.deviceId),pending=client.request('/status');
@@ -50,15 +68,15 @@ test('a linked computer: requests round-trip, task routing, grants and answers',
     const inflight=client.request('/status');ws.close(1006);await assert.rejects(inflight,/disconnected/);
     assert.equal(hub.machineFor('task-1'),null);await assert.rejects(hub.clientFor(p.deviceId).request('/status'),/offline/);
     // Removing a computer closes its link with the "removed" code.
-    const ws2=new FakeWs();hub.attach(ws2,{...device,id:p.deviceId});await hub.remove(p.deviceId);assert.equal(ws2.closed,4401);
+    const ws2=new FakeWs();await attach(ws2,{...device,id:p.deviceId});await hub.remove(p.deviceId);assert.equal(ws2.closed,4401);
   }finally{await done();}
 });
 
 test('desktop tools route to the allowed computer, and ask when none is allowed',async()=>{
-  const {hub,done}=await setup();
+  const {hub,attach,done}=await setup();
   try{
     const {code}=hub.createCode(),p=await hub.pair({code,name:'Studio Mac',os:'darwin'}),device=(await hub.devices.list())[0],ws=new FakeWs();
-    hub.attach(ws,{...device,id:p.deviceId});
+    await attach(ws,{...device,id:p.deviceId});
     const task={taskId:'task-9',sessionId:'sess-9',status:'running',child:false},asked=[];
     const control=new DesktopControl({hub,resolveOwner:()=>task,requestGrant:async o=>{asked.push(o.taskId);return 'Asked the user to allow desktop control. End your turn now.';}});
     const exec={agent:{id:'sess-9'}};
@@ -70,6 +88,27 @@ test('desktop tools route to the allowed computer, and ask when none is allowed'
     const attaching=control.forExecution(exec);await new Promise(r=>setImmediate(r));
     const s=ws.sent.at(-1);assert.equal(s.path,'/status');ws.reply({type:'response',id:s.id,status:200,body:{state:'agent',taskId:'task-9',sessionId:'ds-1',epoch:4}});
     const agent=await attaching;assert.equal(agent.taskId,'task-9');assert.equal(control.computer.name,'Studio Mac');
+    ws.close(1006);assert.equal(control.current,null);assert.equal(agent.client.auth,null,'offline transport invalidates the cached session');
+    await assert.rejects(control.forExecution(exec),/Asked the user/,'reconnect requires a fresh grant');
     control.close();
   }finally{await done();}
+});
+
+test('verification gates connections and raw signaling cannot change task ownership',async()=>{
+ const {hub,devices,attach,done}=await setup();try{
+  const p=await hub.pair({code:hub.createCode().code,name:'Fixture'}),device=(await devices.list())[0],unverified=new FakeWs();
+  hub.attach(unverified,device);assert.equal(unverified.closed,4003);assert.equal(hub.links.size,0);
+  await assert.rejects(hub.confirm(p.deviceId,'0000-0000-0000-0000'),/do not match/);
+  const ws=new FakeWs();await attach(ws,device);ws.raw({type:'state',state:'agent',taskId:'injected'});ws.raw({type:'answer',allowed:true,taskId:'injected'});await tick();assert.equal(hub.machineFor('injected'),null);
+  const before=ws.signals.length;hub.ask({id:'fixture',title:'private fixture title'});assert.equal(ws.sent.at(-1).type,'ask');assert.equal(ws.signals.length,before);
+ }finally{await done();}
+});
+
+test('device identity survives restart and concurrent enrollment does not lose pins or verification',async()=>{
+ const {devices,dir,done}=await setup();try{
+  const first=await devices.identity();assert.equal((await new DesktopDevices(dir).identity()).publicKey,first.publicKey);
+  const enrolled=await Promise.all(Array.from({length:5},(_,i)=>devices.create({name:'Fixture '+i,publicKey:identity().publicKey})));
+  await Promise.all(enrolled.map(({device})=>devices.update(device.id,{verified:true})));
+  const all=await devices.list();assert.equal(all.length,5);assert.ok(all.every(d=>d.verified&&d.publicKey));
+ }finally{await done();}
 });

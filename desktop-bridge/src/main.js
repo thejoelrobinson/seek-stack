@@ -13,6 +13,8 @@ import {DesktopBridgeClient} from './client.js';
 import {DesktopAgent} from './agent.js';
 import {SeekLink} from './link.js';
 import {linkOptions} from './net.js';
+import {createSecurePeer} from './secure-link.js';
+import {parseInvitation} from './pairing.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const inputSmoke=process.argv.includes('--smoke-input');
@@ -66,7 +68,19 @@ function protect(w){
 }
 function requirePanel(event){if(event.sender!==panel?.webContents||event.senderFrame!==panel.webContents.mainFrame)throw Error('Only the local control panel may grant desktop access');}
 
+let pendingInvitation=null;
+function presentInvitation(value){
+  try{parseInvitation(value);}catch{return;}
+  pendingInvitation=value;
+  if(panel&&!panel.isDestroyed()){
+    if(panel.isMinimized())panel.restore();panel.show();panel.focus();panel.webContents.send('invitation',value);
+  }
+}
+app.on('open-url',(event,value)=>{event.preventDefault();presentInvitation(value);});
+app.on('second-instance',(_event,args)=>{const value=args.find(s=>s.startsWith('seek-desktop://'));if(value)presentInvitation(value);else if(panel&&!panel.isDestroyed()){panel.restore();panel.show();panel.focus();}});
+const initialInvitation=process.argv.find(s=>s.startsWith('seek-desktop://'));if(initialInvitation)presentInvitation(initialInvitation);
 if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()=>{
+  if(app.isPackaged&&!smoke)app.setAsDefaultProtocolClient('seek-desktop');
   const d=screen.getPrimaryDisplay();selectedId=String(d.id);
   const macHelper=await access(helperPath).then(()=>true,()=>false);
   const refreshCapabilities=async()=>{
@@ -101,13 +115,16 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   };
   ipcMain.handle('grant',(event,task)=>{requirePanel(event);return grantTask(task);});
   // Pairing with Seek (Settings › Computers) and requests that arrive over the link.
-  const keyStore=safeStorage.isEncryptionAvailable()?{encrypt:s=>safeStorage.encryptString(s).toString('base64'),decrypt:s=>safeStorage.decryptString(Buffer.from(s,'base64'))}:{encrypt:s=>s,decrypt:s=>s};
+  const protectedStorage=safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');
+  const unavailable=()=>{throw Error('Unlock your OS keychain before pairing. Seek will not save device keys without protected storage.');};
+  const keyStore=protectedStorage?{encrypt:s=>safeStorage.encryptString(s).toString('base64'),decrypt:s=>safeStorage.decryptString(Buffer.from(s,'base64'))}:{encrypt:unavailable,decrypt:unavailable};
   link=new SeekLink({file:join(app.getPath('userData'),'seek-link.json'),...keyStore,WebSocketImpl:WebSocket,
     // Pairing uses Chromium's network stack; the link uses the same proxy and the system's certificates.
     fetchImpl:(url,options)=>net.fetch(url,options),prepare:url=>linkOptions(url,{resolveProxy:u=>electronSession.defaultSession.resolveProxy(u)}),
     info:()=>({name:hostname(),os:process.platform,arch:process.arch,version:app.getVersion()}),
     localRequest:async(method,path,body)=>{const r=await fetch(status().endpoint+path,{method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000)});return {status:r.status,body:await r.json()};},
     grant:(task,title)=>grantTask(task,title),
+    onDisconnect:()=>{if(control.state==='agent')stop('Secure desktop connection lost');},
     onChange:s=>{for(const w of [panel,pet])if(w&&!w.isDestroyed())w.webContents.send('link',s);if(s.requests.length&&panel&&!panel.isDestroyed()&&control.state!=='agent'){if(panel.isMinimized())panel.restore();panel.showInactive();}},
     log:m=>console.warn(m)});
   // Start with the computer once paired, so Seek can reach it after a restart (Windows and macOS).
@@ -115,8 +132,10 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   ipcMain.handle('login-item',()=>loginItem());
   ipcMain.handle('set-login-item',(event,value)=>{requirePanel(event);app.setLoginItemSettings({openAtLogin:!!value,args:['--login']});return loginItem();});
   ipcMain.handle('link-status',()=>link.status());
-  ipcMain.handle('link-pair',async(event,input)=>{requirePanel(event);const s=await link.pair(input||{});if(app.isPackaged&&process.platform!=='linux')app.setLoginItemSettings({openAtLogin:true,args:['--login']});return s;});
+  ipcMain.handle('link-invitation',event=>{requirePanel(event);return pendingInvitation;});
+  ipcMain.handle('link-pair',async(event,input)=>{requirePanel(event);const s=await link.pair(input||{});pendingInvitation=null;if(app.isPackaged&&process.platform!=='linux')app.setLoginItemSettings({openAtLogin:true,args:['--login']});return s;});
   ipcMain.handle('link-unpair',event=>{requirePanel(event);return link.unpair();});
+  ipcMain.handle('link-confirm',(event,code)=>{requirePanel(event);return link.confirm(code);});
   ipcMain.handle('link-remote-grant',(event,value)=>{requirePanel(event);return link.setRemoteGrant(!!value);});
   ipcMain.handle('link-answer',(event,{taskId,allow}={})=>{requirePanel(event);return link.answer(String(taskId||''),!!allow);});
   ipcMain.handle('select-display',(event,id)=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing displays');if(!displays().some(d=>d.id===id))throw Error('Unknown display');selectedId=id;control.emit();return status();});
@@ -149,6 +168,22 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
       const blocked=await fetch(status().endpoint+'/status');
       if(title!=='Seek Desktop'||!mounted||!texture||!visibleStop||response.status!==200||blocked.status!==403)throw Error('Packaged app smoke checks failed: '+JSON.stringify({title,mounted,texture,visibleStop,status:response.status,blocked:blocked.status}));
       await native.execute({kind:'probe'});
+      // The packaged Electron Node runtime must run the actual DTLS/SCTP stack.
+      // Exchange synthetic content only; do not capture a screen for this check.
+      let rtcA,rtcB;
+      try{
+        let received;const arrived=new Promise(resolve=>{received=resolve;});
+        const peerOptions={iceAdditionalHostAddresses:['127.0.0.1'],iceInterfaceAddresses:{udp4:'127.0.0.1'},iceUseIpv6:false};
+        rtcA=await createSecurePeer({peerOptions,onMessage:()=>{}});
+        rtcB=await createSecurePeer({peerOptions,onMessage:received});
+        const offer=await rtcA.offer();await rtcA.accept(await rtcB.answer(offer));
+        const deadline=Date.now()+10000;while(!rtcA.ready||!rtcB.ready){if(Date.now()>deadline)throw Error('Packaged WebRTC connection failed');await new Promise(r=>setTimeout(r,20));}
+        rtcA.send({fixture:'Seek encrypted desktop smoke'});
+        const message=await Promise.race([arrived,new Promise((_r,reject)=>setTimeout(()=>reject(Error('Packaged WebRTC data channel did not answer')),3000))]);
+        if(message.fixture!=='Seek encrypted desktop smoke')throw Error('Packaged WebRTC data changed');
+        for(const peer of [rtcA,rtcB])peer.pc.dtlsTransports[0].verifyRemoteCertificateFingerprint();
+        console.log('SEEK_BRIDGE_WEBRTC_SMOKE_OK');
+      }finally{rtcA?.close();rtcB?.close();}
       if(inputSmoke){
         app.setAccessibilitySupportEnabled(true);
         const fixture=new BrowserWindow({width:650,height:450,show:true,...opts});protect(fixture);

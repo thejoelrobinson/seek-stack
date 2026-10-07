@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('bridge',{
  onState:fn=>ipcRenderer.on('state',(_e,s)=>fn(s)),
  // Seek connection: pairing, phone approval and requests from Seek.
  linkStatus:()=>ipcRenderer.invoke('link-status'),pair:input=>ipcRenderer.invoke('link-pair',input),unpair:()=>ipcRenderer.invoke('link-unpair'),
+ confirmLink:code=>ipcRenderer.invoke('link-confirm',code),
+ invitation:()=>ipcRenderer.invoke('link-invitation'),onInvitation:fn=>ipcRenderer.on('invitation',(_e,value)=>fn(value)),
  setRemoteGrant:value=>ipcRenderer.invoke('link-remote-grant',!!value),answer:(taskId,allow)=>ipcRenderer.invoke('link-answer',{taskId,allow}),
  onLink:fn=>ipcRenderer.on('link',(_e,s)=>fn(s)),
  loginItem:()=>ipcRenderer.invoke('login-item'),setLoginItem:value=>ipcRenderer.invoke('set-login-item',!!value)
