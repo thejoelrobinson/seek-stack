@@ -95,12 +95,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          cd release
-          rm -f panel.png companion.png
+          # Artifacts keep their folders: installers in dist/, smoke screenshots (not released) in smoke-output/.
+          cd release/dist
           sha256sum * > SHA256SUMS
-          printf '%s\n' 'Seek Desktop developer preview. Unsigned installers; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI and X11 at 100% scaling. Windows selected-window fill/invoke support background operation. Pair with Seek in Settings › Computers. Wayland control and screen streaming remain unfinished. See desktop-bridge/README.md for permissions and validation limits.' > ../notes.md
+          printf '%s\n' 'Seek Desktop developer preview. Unsigned installers; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI and X11 at 100% scaling. Windows selected-window fill/invoke support background operation. Pair with Seek in Settings › Computers. Wayland control and screen streaming remain unfinished. See desktop-bridge/README.md for permissions and validation limits.' > "$RUNNER_TEMP/notes.md"
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --prerelease --title "Seek Desktop $GITHUB_REF_NAME" --notes-file ../notes.md
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --prerelease --title "Seek Desktop $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
           fi
           test "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" = true
           gh release upload "$GITHUB_REF_NAME" ./* --clobber
