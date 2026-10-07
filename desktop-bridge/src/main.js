@@ -159,13 +159,15 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
           console.log('smoke: fixture observed');await agent.attach();await agent.find('Bridge smoke field');console.log('smoke: field found');
           const field=[...agent.refs].find(([_ref,id])=>agent.frame.elements.some(e=>e.id===id&&e.canFill));
           if(!field)throw Error('Accessible editable fixture field missing');
-          await agent.act('fill',{ref:field[0],text:'Qwen smoke ✓'});console.log('smoke: fill sent');
-          if(await fixture.webContents.executeJavaScript("document.querySelector('#field').value")!=='Qwen smoke ✓')throw Error('Native fill did not reach the own fixture');
+          // Linux types the text with xdotool, which remaps the keyboard for non-ASCII characters.
+          const smokeText=process.platform==='linux'?'Qwen smoke ok':'Qwen smoke ✓';
+          await agent.act('fill',{ref:field[0],text:smokeText});console.log('smoke: fill sent');
+          if(await fixture.webContents.executeJavaScript("document.querySelector('#field').value")!==smokeText)throw Error('Native fill did not reach the own fixture');
           await agent.find('Apply fixture');console.log('smoke: button found');
           const button=[...agent.refs].find(([_ref,id])=>agent.frame.elements.some(e=>e.id===id&&e.canInvoke));
           if(!button)throw Error('Accessible fixture action missing');
           await agent.act('invoke',{ref:button[0]});
-          if(await fixture.webContents.executeJavaScript("document.querySelector('#receipt').textContent")!=='Applied: Qwen smoke ✓')throw Error('Native invoke did not reach the own fixture');
+          if(await fixture.webContents.executeJavaScript("document.querySelector('#receipt').textContent")!=='Applied: '+smokeText)throw Error('Native invoke did not reach the own fixture');
           console.log('SEEK_BRIDGE_INPUT_SMOKE_OK '+JSON.stringify({platform:process.platform,structuredObservation:true,fill:true,invoke:true}));
         }finally{agent.close();stop('Smoke finished');fixture.destroy();}
       }

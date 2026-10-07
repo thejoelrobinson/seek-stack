@@ -12,4 +12,4 @@ if(process.argv.includes('--input'))args.push('--smoke-input');
 const child=spawn(executable,args,{stdio:'inherit',env:process.env});
 const timer=setTimeout(()=>{console.error('Smoke test timed out after 120 s');child.kill();process.exitCode=1;},120000);
 child.on('error',e=>{console.error(e);clearTimeout(timer);process.exitCode=1;});
-child.on('exit',code=>{clearTimeout(timer);process.exitCode=code??1;});
+child.on('exit',(code,signal)=>{clearTimeout(timer);if(code!==0)console.error(`Smoke app exited with code ${code}${signal?` (signal ${signal})`:''}`);process.exitCode=code??1;});
