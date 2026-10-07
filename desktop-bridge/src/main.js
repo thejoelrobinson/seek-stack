@@ -152,7 +152,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
           try{observed=await capture();lastError=null;if(observed.title==='Seek Bridge Fixture'&&observed.elements.some(e=>e.canFill))break;}catch(e){lastError=e.message;}
           await new Promise(resolve=>setTimeout(resolve,300));
         }
-        if(observed?.title!=='Seek Bridge Fixture'||!observed.elements.some(e=>e.canFill))throw Error('Own accessibility fixture is unavailable: '+JSON.stringify({error:lastError,diagnostic:observed?.diagnostic,title:observed?.title,count:observed?.elements?.length,controls:observed?.title==='Seek Bridge Fixture'?observed.elements.map(e=>({role:e.role,name:e.name,canFill:e.canFill})):undefined}));
+        if(observed?.title!=='Seek Bridge Fixture'||!observed.elements.some(e=>e.canFill))throw Error('Own accessibility fixture is unavailable: '+JSON.stringify({error:lastError,diagnostic:observed?.diagnostic,title:observed?.title,count:observed?.elements?.length,controls:observed?.title==='Seek Bridge Fixture'?observed.elements.filter(e=>e.debug||e.canFill||e.canInvoke).map(e=>({role:e.role,name:e.name,canFill:e.canFill,canInvoke:e.canInvoke,debug:e.debug})):undefined}));
         const taskId='smoke-'+process.pid;control.grant(taskId);
         const agent=new DesktopAgent({taskId,client:new DesktopBridgeClient({endpoint:status().endpoint,token})});
         try{

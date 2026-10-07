@@ -89,6 +89,12 @@ class AccessibilityBridge:
                             node["value"] = self.call("Text", "get_text", text, 0, min(self.call("Text", "get_character_count", text), 4096))
                     except Exception:
                         pass
+                if os.environ.get("SEEK_BRIDGE_DEBUG") and identity[0] in ("entry", "text", "password text", "push button"):
+                    try:
+                        node["debug"] = dict(interfaces=list(target.get_interfaces()),
+                                             states=[s.value_nick for s in states.get_states()])
+                    except Exception as error:
+                        node["debug"] = repr(error)[:160]
                 nodes.append(node)
                 self.targets[ref] = (target, identity)
 
