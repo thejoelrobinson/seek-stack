@@ -33,6 +33,18 @@ class AccessibilityBridge:
                     return index
         return None
 
+    def describe(self, desktop, pid, window_id):
+        """What AT-SPI exposes, for the error message when the focused window can't be matched."""
+        try:
+            apps = []
+            for index in range(min(desktop.get_child_count(), 30)):
+                app = desktop.get_child_at_index(index)
+                frames = [f"{app.get_child_at_index(n).get_name()!r}" for n in range(min(app.get_child_count(), 5))]
+                apps.append(f"{app.get_name()!r} pid {app.get_process_id()} frames [{', '.join(frames)}]")
+            return f" (focused window pid {pid}, title {self.xdo('getwindowname', window_id)!r}; AT-SPI apps: {'; '.join(apps) or 'none'})"
+        except Exception as error:
+            return f" ({error})"
+
     def inspect(self):
         window_id = self.active_window()
         pid = int(self.xdo("getwindowpid", window_id))
@@ -56,7 +68,7 @@ class AccessibilityBridge:
             named = [w for w in candidates if (w.get_name() or "") == title]
             root = named[0] if len(named) == 1 else (candidates[0] if len(candidates) == 1 else None)
         if root is None:
-            raise RuntimeError("Active window exposes no AT-SPI accessibility tree")
+            raise RuntimeError("Active window exposes no AT-SPI accessibility tree" + self.describe(desktop, pid, window_id))
         self.targets = {}
         nodes, truncated, start = [], False, time.monotonic()
 
