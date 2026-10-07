@@ -3,7 +3,7 @@ let executable,args;
 if(process.argv.includes('--packaged')){
  if(process.platform==='win32')executable=resolve('dist/win-unpacked/Seek Desktop.exe');
  else if(process.platform==='darwin'){
-  const folders=await readdir('dist');const folder=folders.find(x=>x===(process.arch==='arm64'?'mac-arm64':'mac'));
+  const folders=await readdir('dist');const folder=['mac-universal',process.arch==='arm64'?'mac-arm64':'mac'].find(x=>folders.includes(x));
   if(!folder)throw Error('Native packaged macOS app missing');executable=resolve(join('dist',folder,'Seek Desktop.app/Contents/MacOS/Seek Desktop'));
  }else executable=resolve('dist/linux-unpacked/seek-desktop-bridge');
  args=['--smoke'];

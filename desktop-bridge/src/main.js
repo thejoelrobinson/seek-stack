@@ -1,4 +1,6 @@
-import {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,systemPreferences,powerMonitor,session as electronSession} from 'electron';
+import {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,systemPreferences,powerMonitor,session as electronSession,safeStorage,Notification} from 'electron';
+import WebSocket from 'ws';
+import {hostname} from 'node:os';
 import {randomBytes} from 'node:crypto';
 import {writeFile,mkdir,rm,access} from 'node:fs/promises';
 import {join,dirname} from 'node:path';
@@ -9,12 +11,14 @@ import {platformCapabilities,hasXdotool,hasAtspi} from './platform.js';
 import {createBridgeService} from './service.js';
 import {DesktopBridgeClient} from './client.js';
 import {DesktopAgent} from './agent.js';
+import {SeekLink} from './link.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const inputSmoke=process.argv.includes('--smoke-input');
 const smoke=process.argv.includes('--smoke')||inputSmoke;
 if(inputSmoke)app.commandLine.appendSwitch('force-renderer-accessibility');
 if(smoke)app.setPath('userData',join(app.getPath('temp'),'seek-bridge-smoke-'+process.pid));
+let link=null;
 let panel,pet,cursor,server,selectedId,selectedWindowId=null,windows=[],credentialPath,shortcutReady=false,capabilities,quitting=false;
 const token=randomBytes(32).toString('hex');
 const helperPath=app.isPackaged?join(process.resourcesPath,'native','seek-input'):join(root,'..','native','seek-input');
@@ -24,6 +28,7 @@ function selected(){const d=displays().find(d=>d.id===selectedId);if(!d)throw Er
 const control=new DesktopSession({onState:s=>{
   const full={...s,capabilities,displays:app.isReady()?displays():[],selectedId,selectedWindowId,windows,shortcutReady};
   for(const w of [panel,pet,cursor])if(w&&!w.isDestroyed())w.webContents.send('state',full);
+  link?.sendState(s);
   if(cursor&&!cursor.isDestroyed()){
     if(s.cursor&&s.state==='agent'){cursor.setPosition(s.cursor.x-3,s.cursor.y-3);cursor.showInactive();}
     else cursor.hide();
@@ -81,14 +86,30 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   ipcMain.handle('list-windows',async event=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing window targets');if(process.platform==='win32')windows=(await native.execute({kind:'windows'})).windows;control.emit();return status();});
   ipcMain.handle('select-window',(event,id)=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing window targets');if(id!==null&&!windows.some(w=>w.id===id))throw Error('Unknown window');selectedWindowId=id;control.emit();return status();});
   ipcMain.handle('refresh-capabilities',async event=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before refreshing permissions');return refreshCapabilities();});
-  ipcMain.handle('grant',(event,task)=>{
-    requirePanel(event);
+  const grantTask=(task,title='')=>{
     if(!shortcutReady)throw Error('Local takeover shortcut unavailable; control is disabled');
     if(!capabilities.input)throw Error(capabilities.inputReason);
     if(!capabilities.structuredObservation)throw Error('Qwen requires structured observations; this OS reader is not implemented yet');
     if(process.platform==='linux'&&selected().scaleFactor!==1)throw Error('Linux X11 control currently requires 100% display scaling');
-    selected();const granted={...control.grant(task),...status()};panel.minimize();return granted;
-  });
+    selected();const granted={...control.grant(task),...status()};
+    if(!pet.isVisible())pet.showInactive();if(!panel.isMinimized())panel.minimize();
+    if(title&&Notification.isSupported())new Notification({title:'Seek is using this computer',body:`${title.slice(0,120)} · Press Ctrl+Alt+Shift+S to take over.`,silent:true}).show();
+    return granted;
+  };
+  ipcMain.handle('grant',(event,task)=>{requirePanel(event);return grantTask(task);});
+  // Pairing with Seek (Settings › Computers) and requests that arrive over the link.
+  const keyStore=safeStorage.isEncryptionAvailable()?{encrypt:s=>safeStorage.encryptString(s).toString('base64'),decrypt:s=>safeStorage.decryptString(Buffer.from(s,'base64'))}:{encrypt:s=>s,decrypt:s=>s};
+  link=new SeekLink({file:join(app.getPath('userData'),'seek-link.json'),...keyStore,WebSocketImpl:WebSocket,
+    info:()=>({name:hostname(),os:process.platform,arch:process.arch,version:app.getVersion()}),
+    localRequest:async(method,path,body)=>{const r=await fetch(status().endpoint+path,{method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000)});return {status:r.status,body:await r.json()};},
+    grant:(task,title)=>grantTask(task,title),
+    onChange:s=>{for(const w of [panel,pet])if(w&&!w.isDestroyed())w.webContents.send('link',s);if(s.requests.length&&panel&&!panel.isDestroyed()&&control.state!=='agent'){if(panel.isMinimized())panel.restore();panel.showInactive();}},
+    log:m=>console.warn(m)});
+  ipcMain.handle('link-status',()=>link.status());
+  ipcMain.handle('link-pair',(event,input)=>{requirePanel(event);return link.pair(input||{});});
+  ipcMain.handle('link-unpair',event=>{requirePanel(event);return link.unpair();});
+  ipcMain.handle('link-remote-grant',(event,value)=>{requirePanel(event);return link.setRemoteGrant(!!value);});
+  ipcMain.handle('link-answer',(event,{taskId,allow}={})=>{requirePanel(event);return link.answer(String(taskId||''),!!allow);});
   ipcMain.handle('select-display',(event,id)=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing displays');if(!displays().some(d=>d.id===id))throw Error('Unknown display');selectedId=id;control.emit();return status();});
   ipcMain.handle('stop',()=>{stop();return status();});
   ipcMain.handle('pet-interactive',(event,value)=>{if(event.sender===pet.webContents)pet.setIgnoreMouseEvents(!value,{forward:true});});
@@ -102,6 +123,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   credentialPath=join(app.getPath('userData'),'agent-connection.json');await mkdir(dirname(credentialPath),{recursive:true});await writeFile(credentialPath,JSON.stringify({endpoint:status().endpoint,token}),{mode:0o600});
   await panel.loadFile(join(root,'panel.html'));await pet.loadFile(join(root,'pet.html'));await cursor.loadFile(join(root,'cursor.html'));
   shortcutReady=globalShortcut.register('CommandOrControl+Alt+Shift+S',()=>stop('Local takeover'));
+  if(!smoke)void link.load();
   if(!shortcutReady)stop('Takeover shortcut unavailable');else control.emit();
   powerMonitor.on('suspend',()=>stop('Computer sleeping'));powerMonitor.on('lock-screen',()=>stop('Computer locked'));
   screen.on('display-removed',()=>stop('Display configuration changed'));screen.on('display-metrics-changed',()=>stop('Display configuration changed'));
@@ -145,13 +167,13 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
           console.log('SEEK_BRIDGE_INPUT_SMOKE_OK '+JSON.stringify({platform:process.platform,structuredObservation:true,fill:true,invoke:true}));
         }finally{agent.close();stop('Smoke finished');fixture.destroy();}
       }
-      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT){await mkdir(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,{recursive:true});await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'panel.png'),(await panel.webContents.capturePage()).toPNG());await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'companion.png'),(await pet.webContents.capturePage()).toPNG());}
+      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT){await mkdir(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,{recursive:true});try{await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'panel.png'),(await panel.webContents.capturePage()).toPNG());await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'companion.png'),(await pet.webContents.capturePage()).toPNG());}catch(e){console.warn('Smoke screenshots unavailable on this display: '+e.message);}}
       console.log('SEEK_BRIDGE_SMOKE_OK '+JSON.stringify({platform:process.platform,character:mounted,api:true,nativeProbe:process.platform==='win32'}));
       native.stop();server.close();await rm(credentialPath,{force:true});app.exit(0);
     }catch(e){console.error(e);native.stop();server?.close();if(credentialPath)await rm(credentialPath,{force:true});app.exit(1);}
   }else console.log('Seek Desktop bridge ready; agent credentials: '+credentialPath);
 }).catch(e=>{console.error(e.message);app.exit(1);});
 app.on('before-quit',()=>{
-  if(quitting)return;quitting=true;stop('Bridge stopped');globalShortcut.unregisterAll();server?.close();
+  if(quitting)return;quitting=true;stop('Bridge stopped');globalShortcut.unregisterAll();link?.close();server?.close();
   if(credentialPath)void rm(credentialPath,{force:true});
 });

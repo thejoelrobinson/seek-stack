@@ -1,6 +1,6 @@
 # Seek Desktop Bridge — developer preview
 
-Unified Electron companion with a task-bound local agent API and an opt-in Seek host adapter. This package is separate from the deployed Seek runtime. The adapter must be registered in the trusted host; remote device pairing is still required before a remote task on seek.joelcrobinson.com can drive this computer.
+Unified Electron companion with a task-bound local agent API, pairing with a Seek server, and the Seek host adapter. Install it on any Windows, Mac or Linux computer, pair it in Seek (Settings › Computers), and Seek can use that computer's apps for a task once you allow it.
 
 ## Run and connect
 
@@ -36,9 +36,16 @@ These preview installers are unsigned. CI does not yet configure Windows code si
 
 Local checks: `npm run check`, `npm test`, `npm run test:python`, `npm run smoke`, `npm run smoke:input`, `npm run build:dir`, `npm run smoke:packaged:input`, then `npm run package`. `npm run build` is available for a full build. The input fixture validates actual accessibility fill/invoke delivery and readback in its own window, without modifying another application's data. Clean-machine installation/uninstallation, physical input across keyboard layouts and actual macOS permission journeys remain separate acceptance work.
 
+## Pairing and remote control
+
+In Seek, open Settings › Computers and create a pairing code (single use, ten minutes). In the companion, enter the Seek address and the code. The companion receives its own device key (stored encrypted with the OS keychain/DPAPI through Electron safeStorage; Seek keeps only a scrypt hash) and keeps one outbound WebSocket to `/work/desktop/link`. Nothing listens on the network: the local API stays loopback-only, and Seek's requests over the link are relayed to it, so sessions, leases, Stop and the takeover shortcut apply unchanged. Only `/status`, `/heartbeat`, `/observe`, `/action` and `/stop` are relayed.
+
+A task gets a computer only after the person allows it: Seek asks "Allow on <computer>?" in the task, the Inbox and Discord, and the companion shows the same request with Allow and Not now. Answering in Seek works only for computers that opted in when pairing ("Let me approve Seek from my phone"); the setting can be changed in the companion at any time. Removing a computer in Seek closes its link at once. The proxy accepts the pairing call without a session (the code is the credential, rate-limited) and the link only with a device key, never the browser cookie.
+
+
 ## Remaining rollout work
 
-- Deploy the opt-in Seek tool adapter; device pairing, authenticated outbound transport and WebRTC screen streaming. Mobile/iPhone clients can then view and control a paired desktop, but cannot expose their own whole-device control through a PWA.
+- WebRTC screen streaming so a person can watch or take over a paired computer from the phone (control by text observations already works remotely).
 - Linux Wayland portals, macOS permission onboarding, real multi-monitor/DPI/keyboard-layout checks on all systems; selected background window support beyond Windows.
 - Detect local user input and pause automatically; independent browser/desktop workspaces for true side-by-side work.
 - Signed and notarized installers, verified updates, clean-machine installation and actual input delivery tests.
