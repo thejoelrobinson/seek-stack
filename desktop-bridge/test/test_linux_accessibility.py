@@ -46,6 +46,19 @@ class LinuxReaderTests(unittest.TestCase):
             return types.SimpleNamespace(stdout="42" if args[1] == "getwindowpid" else "123")
         return bridge.AccessibilityBridge(api, run), root
 
+    def test_focused_frame_found_without_active_state(self):
+        frame = Target("Seek Bridge Fixture", states=("enabled", "showing"), children=(Target("Field"),))
+        other = Target("Other window", states=("enabled", "showing"))
+        desktop = Target("Desktop", children=(Target("App", children=(other, frame)),))
+        api = types.SimpleNamespace(set_timeout=lambda *_: None, get_desktop=lambda _: desktop,
+                                    StateType=types.SimpleNamespace(ACTIVE="active", SHOWING="showing", ENABLED="enabled", FOCUSED="focused", EDITABLE="editable"),
+                                    Role=types.SimpleNamespace(PASSWORD_TEXT="password"), CoordType=types.SimpleNamespace(SCREEN=0))
+        def run(args, **kwargs):
+            return types.SimpleNamespace(stdout={"getwindowpid": "42", "getwindowname": "Seek Bridge Fixture"}.get(args[1], "123"))
+        view = bridge.AccessibilityBridge(api, run).inspect()
+        self.assertEqual(view["title"], "Seek Bridge Fixture")
+        self.assertTrue(any(e["name"] == "Field" for e in view["elements"]))
+
     def test_password_values_omitted_and_refs_bind_live_targets(self):
         reader, root = self.make()
         view = reader.inspect()

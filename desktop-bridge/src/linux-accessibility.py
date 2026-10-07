@@ -36,7 +36,7 @@ class AccessibilityBridge:
     def inspect(self):
         window_id = self.active_window()
         pid = int(self.xdo("getwindowpid", window_id))
-        desktop, root = self.api.get_desktop(0), None
+        desktop, root, candidates = self.api.get_desktop(0), None, []
         for index in range(min(desktop.get_child_count(), 200)):
             app = desktop.get_child_at_index(index)
             if app.get_process_id() != pid:
@@ -46,6 +46,15 @@ class AccessibilityBridge:
                 if window.get_state_set().contains(self.api.StateType.ACTIVE):
                     root = window
                     break
+                candidates.append(window)
+            if root is not None:
+                break
+        # Some toolkits and window managers never mark the focused frame ACTIVE. Fall back to the
+        # frame whose name matches the focused X11 window's title, then to the app's only frame.
+        if root is None and candidates:
+            title = self.xdo("getwindowname", window_id)
+            named = [w for w in candidates if (w.get_name() or "") == title]
+            root = named[0] if len(named) == 1 else (candidates[0] if len(candidates) == 1 else None)
         if root is None:
             raise RuntimeError("Active window exposes no AT-SPI accessibility tree")
         self.targets = {}
