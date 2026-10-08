@@ -28,6 +28,7 @@ test('workbench, library/revisions, typed workflows, voice, focus, steering and 
   if(url.pathname==='/work/api/templates'){if(req.method==='POST'){const body=await read();if(body.action==='remove')templates.splice(templates.findIndex(t=>t.id===body.id),1);else templates.push({id:'saved-workflow',...body});}return json({items:templates});}
   if(url.pathname==='/work/api/library/search')return json({query:url.searchParams.get('q'),hits:url.searchParams.get('q')==='hidden phrase'?[{taskId:'alpha',id:tasks[0].artifacts[0].id,excerpt:'…the <hidden phrase> inside…'}]:[]});
   if(url.pathname==='/work/api/search')return json({tasks:[{id:'alpha',title:'Alpha report',excerpt:'Fixture result containing evidence'}],artifacts:[],memories:[]});
+  if(url.pathname==='/work/api/desktop')return json({computers:[{id:'fixture-mac',name:'Studio Mac',verified:true,remoteGrant:true,online:true,state:'human'}]});
   if(url.pathname==='/work/api/subagents')return json({children:[]});
   if(url.pathname==='/work/api/account')return json({vault:{state:'missing'},sites:[],always:[]});
   if(url.pathname==='/work/api/dreaming')return json(memories);
@@ -92,6 +93,9 @@ test('workbench, library/revisions, typed workflows, voice, focus, steering and 
   await action(tab,"document.querySelector('[data-edit-message]').click()");await wait(tab,"!!document.querySelector('.msg-edit textarea')",'inline editor');assert.equal(await ui.evaluate(tab,"document.activeElement.matches('.msg-edit textarea')"),true,'editor takes focus');
   await action(tab,"{const a=document.querySelector('.msg-edit textarea');a.value='Create a shorter report';a.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.msg-edit').requestSubmit()}");await wait(tab,"!!document.querySelector('.conversation')&&!document.querySelector('.msg-edit')",'branch sent');
   const branch=bodies.slice(branchBodies).find(b=>b.branchFrom);assert.deepEqual([branch?.objective,branch?.branchFrom],['Create a shorter report',{taskId:'alpha',messageIndex:0}],'edit sends a branch of the selected request');
+  await action(tab,"document.querySelector('#new-task').click()");await wait(tab,"!!document.querySelector('#mode option[value=\"desktop:fixture-mac\"]')",'remote computer choice');
+  await action(tab,"document.querySelector('#mode').value='desktop:fixture-mac';document.querySelector('#prompt').value='Use Notes on the selected Mac';document.querySelector('#composer').requestSubmit()");await wait(tab,"!!document.querySelector('.conversation')",'remote task sent');assert.equal(bodies.find(b=>b.objective==='Use Notes on the selected Mac')?.desktopDeviceId,'fixture-mac');
+  await action(tab,"document.querySelector('#new-task').click();document.querySelector('#mode').value='browser';document.querySelector('#prompt').value='Find a fixture in Seek browser';document.querySelector('#composer').requestSubmit()");await wait(tab,"!!document.querySelector('.conversation')",'browser task sent');assert.equal(bodies.find(b=>b.objective==='Find a fixture in Seek browser')?.executionMode,'browser');
   assert.deepEqual(errors,[],'no runtime exceptions');
  }finally{for(const stream of streams)stream.end();await ui.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });

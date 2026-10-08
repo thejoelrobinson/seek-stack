@@ -2,7 +2,7 @@
 
 Click the corner mascot (or press Ctrl/Command + Shift + Space) to talk to Seek. Choose **Chat**, **Browser** (Seek’s existing browser), or **This computer**. Starting a desktop task grants that specific task control; click the mascot to pause and chat, or use Stop / Ctrl/Command + Alt + Shift + S to take control immediately. Replies, progress and recent conversations stay in the companion. Complex approvals, browser handoff, files and the complete conversation remain available through **Open in Seek**. Use the gear for pairing, OS permissions and screen/window selection. For remote work, choose a paired computer in Seek’s composer or in the companion. Its saved remote-control opt-in allows tasks to start without a local prompt. Existing verified WebRTC pairings are preserved when installing an update.
 
-# Seek Desktop Bridge 0.4 — developer preview
+# Seek Desktop Bridge 0.5 — developer preview
 
 Unified Electron companion with a task-bound local agent API, pairing with a Seek server, and the Seek host adapter. Install it on any Windows, Mac or Linux computer, pair it in Seek (Settings › Computers), and Seek can use that computer's apps for a task once you allow it.
 

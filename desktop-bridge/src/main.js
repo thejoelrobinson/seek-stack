@@ -191,14 +191,14 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
       const chatDeadline=Date.now()+3000;while(!chat.isVisible()){if(Date.now()>chatDeadline)throw Error('Mascot click did not open chat');await new Promise(r=>setTimeout(r,20));}
       const companionUi=await chat.webContents.executeJavaScript("({title:document.title,modes:[...document.querySelectorAll('.modes button')].map(b=>b.textContent),input:!!document.querySelector('#input'),connection:!document.querySelector('#connect').hidden,stop:!!document.querySelector('#stop')})");
       if(companionUi.title!=='Seek companion'||companionUi.modes.join(',')!=='Chat,Browser,This computer'||!companionUi.input||!companionUi.connection||!companionUi.stop)throw Error('Companion chat smoke failed');
-      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT){await mkdir(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,{recursive:true});await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'chat-welcome.png'),(await chat.webContents.capturePage()).toPNG());}
+      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT){await mkdir(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,{recursive:true});try{await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'chat-welcome.png'),(await chat.webContents.capturePage()).toPNG());}catch(e){console.warn('Optional chat screenshot unavailable: '+e.message);}}
       // Synthetic renderer data only; this never sends a task to the user's Seek host.
       chat.webContents.send('link',{online:true,paired:true});
       const smokeData={name:'Seek',look:{color:'mint'},tasks:[{id:'smoke-conversation',mode:'browser',title:'Find a good weeknight dinner',status:'complete',messages:[{role:'user',text:'Find a quick vegetarian dinner.'},{role:'assistant',text:'A lemony chickpea skillet is a good fit. It takes about 20 minutes and uses ingredients you can keep in the pantry.\n\nI found the recipe and saved the ingredients in Seek.'}],artifacts:[{title:'Recipe & shopping list'}]}]};chat.webContents.send('companion-data',smokeData);
       companion.data=smokeData;const originalHostRequest=link.requestHost;link.requestHost=async()=>companion.data.tasks[0];
       await chat.webContents.executeJavaScript("document.querySelector('#recent').value='smoke-conversation';document.querySelector('#recent').dispatchEvent(new Event('change'))");
       await new Promise(r=>setTimeout(r,100));
-      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT)await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'chat-conversation.png'),(await chat.webContents.capturePage()).toPNG());
+      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT)try{await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'chat-conversation.png'),(await chat.webContents.capturePage()).toPNG());}catch(e){console.warn('Optional chat screenshot unavailable: '+e.message);}
       link.requestHost=originalHostRequest;chat.hide();
       const response=await fetch(status().endpoint+'/status',{headers:{Authorization:'Bearer '+token}});
       const blocked=await fetch(status().endpoint+'/status');
