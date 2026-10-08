@@ -751,12 +751,12 @@ $('#file-input').onchange=async()=>{const chosen=[...$('#file-input').files];if(
 $('#prompt').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('#composer').requestSubmit();}});
 $('#composer').onsubmit=async e=>{
   e.preventDefault();if(submitting||uploading)return;const input=$('#prompt').value.trim();if(!input)return;submitting=true;$('#send').disabled=true;
-  voice?.stop();const target=selected,key=draftKey(),image=imageMode,attachments=files.slice(),schedule=scheduled,mode=$('#mode').value,source=sourceArtifact;saveDraft();$('#voice-status').textContent='Sending…';
+  voice?.stop();const target=selected,key=draftKey(),image=imageMode,attachments=files.slice(),schedule=scheduled,selection=$('#mode').value,desktopDeviceId=selection.startsWith('desktop:')?selection.slice(8):undefined,executionMode=selection==='browser'?'browser':undefined,mode=selection==='chat'?'chat':'task',source=sourceArtifact;saveDraft();$('#voice-status').textContent='Sending…';
   try{
-    const bytes=new TextEncoder().encode(JSON.stringify([target,input,image,mode,schedule,attachments,source])),fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
+    const bytes=new TextEncoder().encode(JSON.stringify([target,input,image,mode,desktopDeviceId,executionMode,schedule,attachments,source])),fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
     if(submission?.fingerprint!==fingerprint)submission={fingerprint,id:crypto.randomUUID()};try{sessionStorage.setItem('seek-submission',JSON.stringify(submission));}catch{}
     const requestId=submission.id;
-    const send=allowSecret=>target?api('control',{id:target,action:'reply',answer:input,files:attachments,allowSecret,requestId}):image?createImage({prompt:input,ratio:'square',steps:30},{onAccepted:()=>{imageMode=false;view='images';externalView='';previousSignature='';render();}}):api('task',{objective:input,mode,...schedule||{},files:attachments,sourceArtifact:source,allowSecret,requestId});
+    const send=allowSecret=>target?api('control',{id:target,action:'reply',answer:input,files:attachments,allowSecret,requestId}):image?createImage({prompt:input,ratio:'square',steps:30},{onAccepted:()=>{imageMode=false;view='images';externalView='';previousSignature='';render();}}):api('task',{objective:input,mode,desktopDeviceId,executionMode,...schedule||{},files:attachments,sourceArtifact:source,allowSecret,requestId});
     let r;
     // Passwords typed in chat would reach the agent; the server refuses unless you insist.
     try{r=await send(false);}catch(err){if(err.code!=='secret'||!confirm(err.message+'\n\nSend it anyway?'))throw err;r=await send(true);}
@@ -804,3 +804,7 @@ setInterval(()=>{if(document.hidden)return;for(const item of document.querySelec
 const voice=mountVoice({button:$('#voice-input'),input:$('#prompt'),status:$('#voice-status')});
 for(const el of document.querySelectorAll('[data-kbd]'))el.textContent=el.dataset.kbd==='search'?(isMac?'⌘K':'Ctrl K'):(isMac?'⇧⌘O':'Ctrl ⇧ O');
 restoreDraft();decorateTabs();connectEvents();refreshMemoryReview(true);poll();
+
+// Choose a paired computer from any device. Its saved remote-control preference is the standing permission.
+async function refreshComputerTargets(){const select=document.querySelector("#mode");if(!select||document.hidden)return;try{const d=await api("desktop"),selected=select.value;let group=select.querySelector("optgroup");if(!group){group=document.createElement("optgroup");group.label="Your computers";select.append(group);}group.replaceChildren(...d.computers.filter(m=>m.verified&&m.remoteGrant).map(m=>{const o=new Option(m.name+(m.online?"":" · offline"),"desktop:"+m.id);o.disabled=!m.online||m.state==="agent";return o;}));if([...select.options].some(o=>o.value===selected))select.value=selected;}catch{}}
+void refreshComputerTargets();setInterval(refreshComputerTargets,15000);document.querySelector("#mode").addEventListener("focus",()=>void refreshComputerTargets());

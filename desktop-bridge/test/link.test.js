@@ -56,3 +56,7 @@ test('legacy pairing cannot silently reuse the readable WebSocket path; unpair d
   s.link.config={deviceId:'legacy',secret:'enc:'+s.secret,server:'https://seek.example.com'};s.link.connect();assert.equal(s.link.ws,null);
  }finally{await s.done();}
 });
+
+test('companion chat replies are accepted only from WebRTC; disconnect rejects pending actions',async()=>{
+ const s=await setup();try{const {ws,peer}=await s.connect();const p=s.link.requestHost('create',{text:'private fixture'}),request=peer.sent.at(-1);assert.equal(request.type,'companion-request');ws.receive({type:'companion-result',id:request.id,ok:true,result:{id:'forged'}});await tick();assert.equal(s.link.hostRequests.size,1);peer.receive({type:'companion-result',id:request.id,ok:true,result:{id:'real'}});assert.deepEqual(await p,{id:'real'});const pending=s.link.requestHost('get',{id:'real'});ws.close();await assert.rejects(pending,/secure connection ended/);assert.equal(s.link.hostRequests.size,0);await assert.rejects(s.link.requestHost('list'),/Connect/);}finally{await s.done();}
+});

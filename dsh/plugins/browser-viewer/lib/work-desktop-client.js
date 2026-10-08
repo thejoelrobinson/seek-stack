@@ -55,7 +55,7 @@ function relayCard(){
 export async function render(body,{settingsIntro}){
   await detect();
   try{data=await api('desktop');host=data.server||location.host;}catch(e){body.innerHTML=`${settingsIntro('computers','')}<p class="muted">${esc(e.message)}</p>`;return;}
-  body.innerHTML=`${settingsIntro('computers','Let Seek use apps on your computers. You allow each task, and you can take over any time with Ctrl+Alt+Shift+S.')}<div class="dk">${downloadCard()}${pairCard()}${computersCard()}${relayCard()}</div>`;
+  body.innerHTML=`${settingsIntro('computers','Let Seek use apps on your computers. Start tasks remotely on a paired computer with remote control enabled. No local prompt; you can take over any time with Ctrl+Alt+Shift+S.')}<div class="dk">${downloadCard()}${pairCard()}${computersCard()}${relayCard()}</div>`;
 }
 let current=null;
 export function activate(body,opts){current={body,opts};clearInterval(timer);void render(body,opts);

@@ -103,6 +103,15 @@ test('verification gates connections and raw signaling cannot change task owners
   const before=ws.signals.length;hub.ask({id:'fixture',title:'private fixture title'});assert.equal(ws.sent.at(-1).type,'ask');assert.equal(ws.signals.length,before);
  }finally{await done();}
 });
+test('a selected remote computer is granted on first use; Stop never silently regrants',async()=>{
+ const {hub,attach,done}=await setup();try{
+  const p=await hub.pair({code:hub.createCode().code,name:'Remote Mac',os:'darwin'}),device=(await hub.devices.list())[0],ws=new FakeWs();await attach(ws,{...device,id:p.deviceId});
+  const task={taskId:'remote-task',sessionId:'remote-session',status:'running',execution:{mode:'desktop',deviceId:p.deviceId,autoRemote:true,granted:false}},exec={agent:{id:task.sessionId}};let grants=0;
+  const control=new DesktopControl({hub,resolveOwner:()=>task,requestGrant:async()=>{grants++;task.execution.granted=true;ws.reply({type:'state',state:'agent',taskId:task.taskId});return 'Granted';}});
+  const attaching=control.forExecution(exec);await tick();const req=ws.sent.at(-1);assert.equal(req.path,'/status');ws.reply({type:'response',id:req.id,status:200,body:{state:'agent',taskId:task.taskId,sessionId:'local-session',epoch:1}});await attaching;assert.equal(grants,1);
+  ws.reply({type:'state',state:'human',taskId:null});await assert.rejects(control.forExecution(exec),/paused/);assert.equal(grants,1);control.close();
+ }finally{await done();}
+});
 
 test('device identity survives restart and concurrent enrollment does not lose pins or verification',async()=>{
  const {devices,dir,done}=await setup();try{

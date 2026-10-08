@@ -30,6 +30,8 @@ jobs:
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.MAC_CERTIFICATE != '' && 'true' || 'false' }}
       SEEK_BRIDGE_SMOKE_OUTPUT: smoke-output
+      # Explicitly authorized preview distribution; integrity is verified on the final DMG/ZIP.
+      SEEK_MAC_ALLOW_UNNOTARIZED_PREVIEW: '1'
       SEEK_MAC_SIGNED_RELEASE: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.MAC_CERTIFICATE != '' && '1' || '0' }}
       CSC_LINK: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.MAC_CERTIFICATE || '' }}
       CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.MAC_CERTIFICATE_PASSWORD || '' }}
@@ -124,7 +126,7 @@ jobs:
           # Artifacts keep their folders: installers in dist/, smoke screenshots (not released) in smoke-output/.
           cd release/dist
           sha256sum * > SHA256SUMS
-          printf '%s\n' 'Seek Desktop developer preview. Desktop control uses authenticated WebRTC with verified device keys. Connect using a one-use link in Seek Settings > Computers; identities verify automatically. Old pairings require pairing again. Mac installers are Developer ID signed, notarized and verified as universal Intel/Apple silicon bundles. Windows/Linux installers are unsigned; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI, X11 at 100% scaling and an unlocked protected keychain. Windows selected-window fill/invoke support background operation. Wayland control and human screen streaming remain unfinished. See desktop-bridge/SECURITY.md for the trust boundary and validation limits.' > "$RUNNER_TEMP/notes.md"
+          printf '%s\n' 'Seek Desktop developer preview. Desktop control uses authenticated WebRTC with verified device keys. Connect using a one-use link in Seek Settings > Computers; identities verify automatically. Existing verified WebRTC pairings carry forward. Click the corner companion to chat, start a task in Seek’s browser, or grant a task control of this computer. Stop is immediate. Mac preview installers have verified ad-hoc bundle signatures and both Intel/Apple silicon slices; they are not Apple notarized. Windows/Linux installers are unsigned; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI, X11 at 100% scaling and an unlocked protected keychain. Windows selected-window fill/invoke support background operation. Wayland control and human screen streaming remain unfinished. See desktop-bridge/SECURITY.md for the trust boundary and validation limits.' > "$RUNNER_TEMP/notes.md"
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --verify-tag --draft --prerelease --title "Seek Desktop $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
           fi

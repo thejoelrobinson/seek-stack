@@ -9,7 +9,7 @@ const GROUPS=[
   {match:/^finance_/,when:/\b(financ\w*|money|spend\w*|spent|budget\w*|bank\w*|transaction\w*|bills?|debt|income|net worth|balance|credit card|savings|cash ?flow|expenses?)\b/i,domain:'finance'},
   {match:/^purchases_/,when:/\b(purchases?|orders?|receipts?|walmart|amazon|target|costco|retailer\w*|bought|shopping|spend\w*|spent)\b/i},
   {match:/^discord_/,when:/\bdiscord\b/i},
-  {match:/^desktop_/,when:/\b(desktop|my (?:pc|computer|screen)|this (?:pc|computer)|on (?:my|the) (?:pc|computer)|windows apps?|apps? on|open (?:the )?(?:app|program)|notepad|excel|word document|outlook|powerpoint|file explorer|explorer window|settings app|control panel|lightroom|photoshop|premiere|after effects|vs ?code|spotify|teams app)\b/i},
+  {match:/^desktop_/,when:/\b(desktop|mac(?:os)?|safari|my (?:pc|computer|screen)|this (?:pc|computer)|on (?:my|the) (?:pc|computer)|windows apps?|apps? on|open (?:the )?(?:app|program)|notepad|excel|word document|outlook|powerpoint|file explorer|explorer window|settings app|control panel|lightroom|photoshop|premiere|after effects|vs ?code|spotify|teams app)\b/i},
   {match:/^(calendar_|todo_)/,when:/\b(calendars?|schedul\w*|events?|meetings?|appointments?|agenda|remind\w*|to-?dos?|due|deadlines?|tomorrow|today|tonight|this week|next week|weekend|birthdays?|anniversar\w*|plan(?:ning)? my|free time|busy|dinner|lunch|dentist|doctor|trip|vacation)\b/i},
   {match:/^apps_(send_email|create_event|create_document)$/,when:/\b(e-?mail|gmail|inbox|send|calendar|event|meeting|invite|schedule|doc(ument)?s?|google drive|sheet)\b/i}
 ];
@@ -20,8 +20,14 @@ const EVAL_DENY=/^(viewer_pay_with_card|apps_|discord_|finance_|purchases_|deskt
 const PREPARE_DENY=/^(viewer_pay_with_card|apps_(send|create|update|delete)|discord_send|desktop_|mcp__.*(send|create|delete|update))/;
 
 export function hiddenTools(task,names){
+  const execution=task.execution||task.companion;
   const text=`${task.objective||''} ${task.title||''}`;
-  return [...names].filter(name=>ALWAYS_HIDDEN.includes(name)||GROUPS.some(g=>g.match.test(name)&&!(g.domain&&task.domain===g.domain)&&!g.when.test(text)));
+  return [...names].filter(name=>{
+    if(ALWAYS_HIDDEN.includes(name))return true;
+    if(execution&&/^desktop_/.test(name))return execution.mode!=='desktop';
+    if(execution?.mode==='desktop'&&/^viewer_/.test(name))return true;
+    return GROUPS.some(g=>g.match.test(name)&&!(g.domain&&task.domain===g.domain)&&!g.when.test(text));
+  });
 }
 
 export class WorkToolScope {

@@ -1,5 +1,12 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('bridge',{
+ showCompanion:()=>ipcRenderer.invoke('companion-show'),hideCompanion:()=>ipcRenderer.invoke('companion-hide'),
+ companionData:()=>ipcRenderer.invoke('companion-data'),submitTask:input=>ipcRenderer.invoke('companion-submit',input),
+ selectTask:id=>ipcRenderer.invoke('companion-select',id),
+ quit:()=>ipcRenderer.invoke('quit'),
+ replyTask:input=>ipcRenderer.invoke('companion-reply',input),resumeTask:id=>ipcRenderer.invoke('companion-resume',id),pauseTask:id=>ipcRenderer.invoke('companion-pause',id),
+ openTask:(id,browser=false)=>ipcRenderer.invoke('companion-open',{id,browser}),openSettings:()=>ipcRenderer.invoke('companion-settings'),
+ onCompanion:fn=>ipcRenderer.on('companion-data',(_e,data)=>fn(data)),onCompanionFocus:fn=>ipcRenderer.on('companion-focus',()=>fn()),
  status:()=>ipcRenderer.invoke('status'),grant:task=>ipcRenderer.invoke('grant',task),stop:()=>ipcRenderer.invoke('stop'),
  refreshCapabilities:()=>ipcRenderer.invoke('refresh-capabilities'),
  listWindows:()=>ipcRenderer.invoke('list-windows'),selectWindow:id=>ipcRenderer.invoke('select-window',id),

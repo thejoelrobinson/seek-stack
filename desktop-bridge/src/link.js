@@ -5,6 +5,7 @@
 // from Seek itself (the phone). Nothing here bypasses the local takeover shortcut or Stop.
 import {readFile,writeFile,mkdir,rm} from 'node:fs/promises';
 import {dirname} from 'node:path';
+import {randomBytes} from 'node:crypto';
 import {identity,publicIdentity,verificationCode,signSignal,verifySignal,nonce,createSecurePeer} from './secure-link.js';
 import {parseInvitation,invitationRequest,verifyInvitationResult} from './pairing.js';
 
@@ -24,7 +25,7 @@ export class SeekLink{
   constructor({file,encrypt,decrypt,WebSocketImpl,fetchImpl=globalThis.fetch,prepare=async()=>({}),info,localRequest,grant,onDisconnect=()=>{},peerFactory=createSecurePeer,onChange=()=>{},log=()=>{},setTimer=setTimeout,clearTimer=clearTimeout}){
     if(typeof encrypt!=='function'||typeof decrypt!=='function')throw Error('Protected device key storage is required');
     Object.assign(this,{file,encrypt,decrypt,WebSocketImpl,fetchImpl,prepare,info,localRequest,grantLocal:grant,onDisconnect,peerFactory,onChange,log,setTimer,clearTimer});
-    this.config=null;this.ws=null;this.online=false;this.asks=new Map();this.backoff=1000;this.lastError=null;this.stopped=false;
+    this.config=null;this.ws=null;this.online=false;this.asks=new Map();this.hostRequests=new Map();this.backoff=1000;this.lastError=null;this.stopped=false;
   }
   async load(){try{this.config=JSON.parse(await readFile(this.file,'utf8'));}catch{this.config=null;}if(this.config?.deviceId&&!this.config.hostKey)this.lastError='Pair this computer again to enable the secure WebRTC connection.';else if(this.config?.verified)this.connect();this.changed();return this.status();}
   async save(){await mkdir(dirname(this.file),{recursive:true});await writeFile(this.file,JSON.stringify(this.config),{mode:0o600});}
@@ -85,10 +86,20 @@ export class SeekLink{
       if(!this.stopped&&this.config){this.timer=this.setTimer(()=>this.connect(),this.backoff);this.backoff=Math.min(this.backoff*2,30000);}
     });
   }
-  dropPeer(){const peer=this.peer;this.peer=null;this.negotiation=null;this.online=false;peer?.close();this.onDisconnect();this.asks.clear();}
+  dropPeer(){const peer=this.peer;this.peer=null;this.negotiation=null;this.online=false;for(const p of this.hostRequests.values()){this.clearTimer(p.timer);p.reject(Error('The secure connection ended. Reconnect to Seek and try again.'));}this.hostRequests.clear();peer?.close();this.onDisconnect();this.asks.clear();}
   close(){this.clearTimer(this.timer);this.connecting=false;const ws=this.ws;this.ws=null;this.dropPeer();try{ws?.close(1000);}catch{}}
   send(msg){if(this.online&&this.peer?.ready){try{this.peer.send(msg);}catch{this.ws?.close(4003);}}}
   sendState(s){this.latestState={type:'state',state:s.state,taskId:s.taskId||null,activity:s.activity||''};this.send(this.latestState);}
+  requestHost(method,body={}){
+    if(!this.online||!this.peer?.ready)return Promise.reject(Error('Connect this computer to Seek first.'));
+    if(this.hostRequests.size>=16)return Promise.reject(Error('Seek is busy. Try again shortly.'));
+    const id='ui_'+randomBytes(16).toString('hex'),peer=this.peer;
+    return new Promise((resolve,reject)=>{
+      const timer=this.setTimer(()=>{this.hostRequests.delete(id);reject(Error('Seek did not answer. Your task may already be in Recent conversations.'));},15000);
+      this.hostRequests.set(id,{resolve,reject,timer});
+      try{peer.send({type:'companion-request',id,method,body});}catch(e){this.clearTimer(timer);this.hostRequests.delete(id);reject(e);}
+    });
+  }
   async signal(msg,ws){
     if(msg.type!=='rtc')return;
     const config=this.config;if(!config?.verified)return;
@@ -112,6 +123,12 @@ export class SeekLink{
   async handle(msg){
     if(!msg||typeof msg!=='object')throw Error('Invalid desktop message');
     const peer=this.peer,reply=m=>{if(this.peer===peer)this.send(m);};
+    if(msg.type==='companion-result'){
+      const p=this.hostRequests.get(msg.id);if(!p)return;
+      this.hostRequests.delete(msg.id);this.clearTimer(p.timer);
+      if(msg.ok===true)p.resolve(msg.result);else p.reject(Error(String(msg.error||'Seek could not complete that action.').slice(0,500)));
+      return;
+    }
     if(msg.type==='request'){
       // Seek reaches this computer only through its own local API: same sessions, leases and checks.
       if(!['GET','POST'].includes(msg.method)||!['/status','/heartbeat','/observe','/action','/stop'].includes(msg.path)){reply({type:'response',id:msg.id,status:404,body:{error:'Not found'}});return;}

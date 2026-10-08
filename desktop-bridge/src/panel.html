@@ -18,5 +18,5 @@ details{margin-top:6px}summary{cursor:pointer;color:var(--muted);font-size:13px}
 <section id="link"><h2>Connect to Seek</h2><div id="link-body"></div><p class="error" id="link-error" hidden></p></section>
 <section><h2>What Seek can use</h2><p id="capability">Checking…</p><label>Screen<select id="display"></select></label><div id="window-slot"></div></section>
 <details><summary>Advanced</summary><section><h2>Give a task control by ID</h2><p>Only needed without a Seek connection.</p><label>Task ID<input id="task" placeholder="Task ID from Seek" autocomplete="off"></label><button id="grant">Give this task control</button></section><button id="show-pet">Show the companion</button><pre id="details"></pre></details>
-<button id="stop">Take control / Stop</button>
+<div class="row"><button id="chat">Talk to Seek</button><button id="quit">Quit Seek Desktop</button></div><button id="stop">Take control / Stop</button>
 <script type="module" src="panel.js"></script></html>

@@ -1,4 +1,6 @@
 import './buddy.js';
+window.bridge.onCompanion(d=>window.SeekBuddy.setLook(d.look));
+document.querySelector('#chat').onclick=()=>window.bridge.showCompanion();document.querySelector('#quit').onclick=()=>window.bridge.quit();
 const $=s=>document.querySelector(s);
 const el=(tag,props={},...kids)=>{const n=Object.assign(document.createElement(tag),props);n.append(...kids);return n;};
 let latest,linkState,invitationText='';
@@ -23,14 +25,14 @@ const renderLink=s=>{
   const inviteLabel=el('label',{},'Connection link',invite);
   const linkEntry=invitationText?el('details',{},el('summary',{textContent:'Use another connection link'}),inviteLabel):inviteLabel;
   simple.append(el('p',{textContent:'Your devices verify each other automatically. Approve this connection to make the computer available in Seek.'}),preview,linkEntry,
-    el('label',{},'Computer name',name),el('label',{className:'check'},remote,el('span',{textContent:'Let me approve tasks from my phone'})),connect);
+    el('label',{},'Computer name',name),el('label',{className:'check'},remote,el('span',{textContent:'Allow remote tasks to use this computer'})),connect);
   simple.onsubmit=e=>{e.preventDefault();connect.disabled=true;linkError(null);window.bridge.pair({invitation:invite.value,name:name.value,remoteGrant:remote.checked}).then(result=>{invitationText='';renderLink(result);}).catch(linkError).finally(()=>{connect.disabled=false;});};
   const form=el('form',{id:'pair'});
   form.append(el('p',{textContent:'In Seek, open Settings › Computers and choose Add a computer to get a code.'}),
    el('label',{},'Seek address',el('input',{name:'server',value:'https://seek.joelcrobinson.com',autocomplete:'off',required:true})),
    el('label',{},'Pairing code',el('input',{name:'code',placeholder:'ABCD-EFGH',autocomplete:'off',required:true,maxLength:9,style:'text-transform:uppercase;letter-spacing:.08em'})),
    el('label',{},'Name for this computer',el('input',{name:'name',value:s.defaultName||'',placeholder:'e.g. Studio Mac',maxLength:60})),
-   el('label',{className:'check'},el('input',{type:'checkbox',name:'remote',checked:true}),el('span',{textContent:'Let me approve Seek from my phone when I’m away. You can still stop it here any time.'})),
+   el('label',{className:'check'},el('input',{type:'checkbox',name:'remote',checked:true}),el('span',{textContent:'Allow remote tasks to start without a local prompt. You can still stop them here any time.'})),
    el('button',{className:'primary',type:'submit',textContent:'Connect'}));
   form.onsubmit=e=>{e.preventDefault();const f=new FormData(form),btn=form.querySelector('button');btn.disabled=true;linkError(null);
    window.bridge.pair({server:f.get('server'),code:f.get('code'),name:f.get('name'),remoteGrant:f.get('remote')==='on'}).then(renderLink).catch(linkError).finally(()=>{btn.disabled=false;});};
@@ -40,8 +42,8 @@ const renderLink=s=>{
   const out=el('button',{type:'button',textContent:'Disconnect from Seek'});out.onclick=()=>{if(confirm('Disconnect this computer from Seek? You can pair it again with a new code.'))window.bridge.unpair().then(renderLink).catch(linkError);};
   const start=el('input',{type:'checkbox'});window.bridge.loginItem().then(v=>{start.checked=v.openAtLogin;}).catch(()=>{start.disabled=true;});start.onchange=()=>window.bridge.setLoginItem(start.checked).catch(linkError);
   body.replaceChildren(el('p',{},el('span',{className:'dot'+(s.online?' on':'')}),`${s.online?'Encrypted WebRTC connection':s.verified?'Connecting securely':'Verify this computer'} · ${new URL(s.server).host} · `,el('b',{textContent:s.name})),
-   el('label',{className:'check'},remote,el('span',{textContent:'Let me approve Seek from my phone when I’m away'})),
-   el('label',{className:'check'},start,el('span',{textContent:'Start Seek Desktop with this computer (stays hidden until Seek needs it)'})),out);
+   el('label',{className:'check'},remote,el('span',{textContent:'Allow remote tasks without a local prompt'})),
+   el('label',{className:'check'},start,el('span',{textContent:'Start Seek Desktop with this computer'})),out);
   if(s.verificationCode){
    if(s.verified)body.append(el('details',{},el('summary',{textContent:'Device identity'}),el('p',{className:'small',textContent:'Verified with your Seek. Compare this code if you want an additional check.'}),el('code',{textContent:s.verificationCode})));
    else body.append(el('p',{className:'small',textContent:'Security code'}),el('code',{textContent:s.verificationCode}));

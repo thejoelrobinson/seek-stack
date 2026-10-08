@@ -1,4 +1,4 @@
-import {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,systemPreferences,powerMonitor,session as electronSession,safeStorage,Notification,net} from 'electron';
+import {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,systemPreferences,powerMonitor,session as electronSession,safeStorage,Notification,net,shell} from 'electron';
 import WebSocket from 'ws';
 import {hostname} from 'node:os';
 import {randomBytes} from 'node:crypto';
@@ -12,6 +12,7 @@ import {createBridgeService} from './service.js';
 import {DesktopBridgeClient} from './client.js';
 import {DesktopAgent} from './agent.js';
 import {SeekLink} from './link.js';
+import {Companion} from './companion.js';
 import {linkOptions} from './net.js';
 import {createSecurePeer} from './secure-link.js';
 import {parseInvitation} from './pairing.js';
@@ -24,6 +25,7 @@ const atLogin=process.argv.includes('--login')||(process.platform==='darwin'&&ap
 if(inputSmoke)app.commandLine.appendSwitch('force-renderer-accessibility');
 if(smoke)app.setPath('userData',join(app.getPath('temp'),'seek-bridge-smoke-'+process.pid));
 let link=null;
+let chat,companion,showCompanion=()=>{};
 let panel,pet,cursor,server,selectedId,selectedWindowId=null,windows=[],credentialPath,shortcutReady=false,capabilities,quitting=false;
 const token=randomBytes(32).toString('hex');
 const helperPath=app.isPackaged?join(process.resourcesPath,'native','seek-input'):join(root,'..','native','seek-input');
@@ -32,7 +34,7 @@ function displays(){return screen.getAllDisplays().map(d=>({id:String(d.id),labe
 function selected(){const d=displays().find(d=>d.id===selectedId);if(!d)throw Error('Selected display disconnected');return d;}
 const control=new DesktopSession({onState:s=>{
   const full={...s,capabilities,displays:app.isReady()?displays():[],selectedId,selectedWindowId,windows,shortcutReady};
-  for(const w of [panel,pet,cursor])if(w&&!w.isDestroyed())w.webContents.send('state',full);
+  for(const w of [panel,pet,cursor,chat])if(w&&!w.isDestroyed())w.webContents.send('state',full);
   link?.sendState(s);
   if(cursor&&!cursor.isDestroyed()){
     if(s.cursor&&s.state==='agent'){cursor.setPosition(s.cursor.x-3,s.cursor.y-3);cursor.showInactive();}
@@ -67,6 +69,7 @@ function protect(w){
   w.webContents.on('render-process-gone',()=>stop('Companion interrupted'));
 }
 function requirePanel(event){if(event.sender!==panel?.webContents||event.senderFrame!==panel.webContents.mainFrame)throw Error('Only the local control panel may grant desktop access');}
+function requireChat(event){if(event.sender!==chat?.webContents||event.senderFrame!==chat.webContents.mainFrame)throw Error('Only your local companion may start or continue tasks.');}
 
 let pendingInvitation=null;
 function presentInvitation(value){
@@ -77,7 +80,8 @@ function presentInvitation(value){
   }
 }
 app.on('open-url',(event,value)=>{event.preventDefault();presentInvitation(value);});
-app.on('second-instance',(_event,args)=>{const value=args.find(s=>s.startsWith('seek-desktop://'));if(value)presentInvitation(value);else if(panel&&!panel.isDestroyed()){panel.restore();panel.show();panel.focus();}});
+app.on('second-instance',(_event,args)=>{const value=args.find(s=>s.startsWith('seek-desktop://'));if(value)presentInvitation(value);else showCompanion();});
+app.on('activate',()=>showCompanion());
 const initialInvitation=process.argv.find(s=>s.startsWith('seek-desktop://'));if(initialInvitation)presentInvitation(initialInvitation);
 if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()=>{
   if(app.isPackaged&&!smoke)app.setAsDefaultProtocolClient('seek-desktop');
@@ -92,13 +96,16 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   await refreshCapabilities();
   electronSession.defaultSession.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
   const opts={webPreferences:{preload:join(root,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}};
-  panel=new BrowserWindow({width:480,height:760,show:!smoke&&!atLogin,...opts});
-  pet=new BrowserWindow({width:185,height:160,transparent:true,frame:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,focusable:false,show:!smoke&&!atLogin,...opts});
-  // Only the small grip accepts clicks; the character itself forwards clicks to the desktop.
+  panel=new BrowserWindow({width:480,height:760,show:!smoke&&!!pendingInvitation,...opts});
+  pet=new BrowserWindow({width:185,height:172,transparent:true,frame:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,focusable:false,show:!smoke,...opts});
+  chat=new BrowserWindow({width:410,height:590,minWidth:320,minHeight:400,frame:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,show:false,backgroundColor:'#fcfaf7',...opts});
+  const placeChat=()=>{const p=pet.getBounds(),a=screen.getDisplayMatching(p).workArea,w=Math.min(410,a.width-24),h=Math.min(590,a.height-100);chat.setBounds({width:w,height:h,x:Math.max(a.x+12,Math.min(a.x+a.width-w-12,p.x+p.width-w)),y:Math.max(a.y+12,Math.min(a.y+a.height-h-12,p.y-h-8))});};
+  showCompanion=()=>{const id=control.taskId;if(control.state==='agent'){stop('Paused while you chat');const task=companion?.data.tasks.find(t=>t.id===id);if(task&&['running','queued'].includes(task.status))void companion.pause(id).catch(()=>{});}placeChat();pet.showInactive();chat.show();chat.focus();chat.webContents.send('companion-focus');void companion?.refresh().catch(()=>{});};
+  // The mascot and its small controls accept clicks; empty space forwards them to the desktop.
   pet.setIgnoreMouseEvents(true,{forward:true});
   pet.setPosition(d.workArea.x+d.workArea.width-205,d.workArea.y+d.workArea.height-180);
   cursor=new BrowserWindow({width:40,height:40,transparent:true,frame:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,focusable:false,show:false,...opts});
-  cursor.setIgnoreMouseEvents(true);for(const w of [panel,pet,cursor])protect(w);
+  cursor.setIgnoreMouseEvents(true);for(const w of [panel,pet,cursor,chat])protect(w);
   ipcMain.handle('status',()=>status());
   ipcMain.handle('list-windows',async event=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing window targets');if(process.platform==='win32')windows=(await native.execute({kind:'windows'})).windows;control.emit();return status();});
   ipcMain.handle('select-window',(event,id)=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing window targets');if(id!==null&&!windows.some(w=>w.id===id))throw Error('Unknown window');selectedWindowId=id;control.emit();return status();});
@@ -114,6 +121,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
     return granted;
   };
   ipcMain.handle('grant',(event,task)=>{requirePanel(event);return grantTask(task);});
+  ipcMain.handle('quit',event=>{requirePanel(event);app.quit();});
   // Pairing with Seek (Settings › Computers) and requests that arrive over the link.
   const protectedStorage=safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');
   const unavailable=()=>{throw Error('Unlock your OS keychain before pairing. Seek will not save device keys without protected storage.');};
@@ -125,8 +133,19 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
     localRequest:async(method,path,body)=>{const r=await fetch(status().endpoint+path,{method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000)});return {status:r.status,body:await r.json()};},
     grant:(task,title)=>grantTask(task,title),
     onDisconnect:()=>{if(control.state==='agent')stop('Secure desktop connection lost');},
-    onChange:s=>{for(const w of [panel,pet])if(w&&!w.isDestroyed())w.webContents.send('link',s);if(s.requests.length&&panel&&!panel.isDestroyed()&&control.state!=='agent'){if(panel.isMinimized())panel.restore();panel.showInactive();}},
+    onChange:s=>{for(const w of [panel,pet,chat])if(w&&!w.isDestroyed())w.webContents.send('link',s);if(s.online)void companion?.refresh().catch(()=>{});if(s.requests.length&&panel&&!panel.isDestroyed()&&control.state!=='agent'){if(panel.isMinimized())panel.restore();panel.showInactive();}},
     log:m=>console.warn(m)});
+  companion=new Companion({link,session:control,grant:grantTask,stop,beforeGrant:()=>{chat.hide();panel.hide();},onChange:data=>{for(const w of [chat,pet,panel])if(w&&!w.isDestroyed())w.webContents.send('companion-data',data);}});
+  ipcMain.handle('companion-data',event=>{requireChat(event);return companion.data;});
+  ipcMain.handle('companion-select',(event,id)=>{requireChat(event);return companion.select(id);});
+  ipcMain.handle('companion-submit',(event,input)=>{requireChat(event);return companion.submit(input||{});});
+  ipcMain.handle('companion-reply',(event,input)=>{requireChat(event);return companion.reply(input||{});});
+  ipcMain.handle('companion-resume',(event,id)=>{requireChat(event);return companion.resume(id);});
+  ipcMain.handle('companion-pause',(event,id)=>{requireChat(event);return companion.pause(id);});
+  ipcMain.handle('companion-hide',event=>{requireChat(event);chat.hide();});
+  ipcMain.handle('companion-show',event=>{if(event.sender!==pet.webContents&&event.sender!==panel.webContents)return;showCompanion();});
+  ipcMain.handle('companion-settings',event=>{requireChat(event);chat.hide();panel.restore();panel.show();panel.focus();});
+  ipcMain.handle('companion-open',async(event,{id,browser=false}={})=>{requireChat(event);companion.task(id);if(!/^[a-zA-Z0-9_-]{1,200}$/.test(id))throw Error('Invalid conversation');const url=new URL('/work',link.config.server);url.searchParams.set('task',id);if(browser)url.searchParams.set('browser','view');await shell.openExternal(url.href);});
   // Start with the computer once paired, so Seek can reach it after a restart (Windows and macOS).
   const loginItem=()=>({openAtLogin:app.getLoginItemSettings({args:['--login']}).openAtLogin});
   ipcMain.handle('login-item',()=>loginItem());
@@ -141,7 +160,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   ipcMain.handle('select-display',(event,id)=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing displays');if(!displays().some(d=>d.id===id))throw Error('Unknown display');selectedId=id;control.emit();return status();});
   ipcMain.handle('stop',()=>{stop();return status();});
   ipcMain.handle('pet-interactive',(event,value)=>{if(event.sender===pet.webContents)pet.setIgnoreMouseEvents(!value,{forward:true});});
-  ipcMain.handle('pet-move',(event,delta)=>{if(event.sender!==pet.webContents||!Number.isFinite(delta?.x)||!Number.isFinite(delta?.y))return;const [x,y]=pet.getPosition();pet.setPosition(x+Math.max(-200,Math.min(200,Math.round(delta.x))),y+Math.max(-200,Math.min(200,Math.round(delta.y))));});
+  ipcMain.handle('pet-move',(event,delta)=>{if(event.sender!==pet.webContents||!Number.isFinite(delta?.x)||!Number.isFinite(delta?.y))return;const [x,y]=pet.getPosition(),a=screen.getDisplayNearestPoint({x:x+Math.round(delta.x),y:y+Math.round(delta.y)}).workArea;pet.setPosition(Math.max(a.x,Math.min(a.x+a.width-185,x+Math.max(-200,Math.min(200,Math.round(delta.x))))),Math.max(a.y,Math.min(a.y+a.height-172,y+Math.max(-200,Math.min(200,Math.round(delta.y))))));if(chat.isVisible())placeChat();});
   ipcMain.handle('pet-hide',()=>{pet.hide();});
   ipcMain.handle('pet-show',(event)=>{requirePanel(event);pet.showInactive();});
   server=createBridgeService({session:control,native,token,status,capture,stop,toNative:c=>{
@@ -149,13 +168,17 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   }});
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   credentialPath=join(app.getPath('userData'),'agent-connection.json');await mkdir(dirname(credentialPath),{recursive:true});await writeFile(credentialPath,JSON.stringify({endpoint:status().endpoint,token}),{mode:0o600});
-  await panel.loadFile(join(root,'panel.html'));await pet.loadFile(join(root,'pet.html'));await cursor.loadFile(join(root,'cursor.html'));
+  await panel.loadFile(join(root,'panel.html'));await pet.loadFile(join(root,'pet.html'));await cursor.loadFile(join(root,'cursor.html'));await chat.loadFile(join(root,'companion.html'));
   shortcutReady=globalShortcut.register('CommandOrControl+Alt+Shift+S',()=>stop('Local takeover'));
+  globalShortcut.register('CommandOrControl+Shift+Space',()=>showCompanion());
   if(!smoke)void link.load();
   if(!shortcutReady)stop('Takeover shortcut unavailable');else control.emit();
   powerMonitor.on('suspend',()=>stop('Computer sleeping'));powerMonitor.on('lock-screen',()=>stop('Computer locked'));
   screen.on('display-removed',()=>stop('Display configuration changed'));screen.on('display-metrics-changed',()=>stop('Display configuration changed'));
-  panel.on('close',()=>app.quit());
+  panel.on('close',e=>{if(!quitting){e.preventDefault();panel.hide();}});
+  chat.on('close',e=>{if(!quitting){e.preventDefault();chat.hide();}});
+  setInterval(()=>{if(link.online)void companion.refresh().catch(()=>{});},2000).unref();
+  if(!smoke&&!atLogin&&!pendingInvitation)showCompanion();
   setInterval(()=>{if(control.state==='agent'&&Date.now()>=control.expiresAt)stop('Connection expired');},250).unref();
   if(smoke){
     try{
@@ -164,6 +187,19 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
       const mounted=await panel.webContents.executeJavaScript("!!document.querySelector('.buddy svg')");
       const visibleStop=await pet.webContents.executeJavaScript("(()=>{const r=document.querySelector('#stop').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})()");
       const texture=await panel.webContents.executeJavaScript("new Promise(resolve=>{const image=new Image();image.onload=()=>resolve(image.naturalWidth>0);image.onerror=()=>resolve(false);image.src='./plush.webp';})");
+      await pet.webContents.executeJavaScript("document.querySelector('#chat').click()");
+      const chatDeadline=Date.now()+3000;while(!chat.isVisible()){if(Date.now()>chatDeadline)throw Error('Mascot click did not open chat');await new Promise(r=>setTimeout(r,20));}
+      const companionUi=await chat.webContents.executeJavaScript("({title:document.title,modes:[...document.querySelectorAll('.modes button')].map(b=>b.textContent),input:!!document.querySelector('#input'),connection:!document.querySelector('#connect').hidden,stop:!!document.querySelector('#stop')})");
+      if(companionUi.title!=='Seek companion'||companionUi.modes.join(',')!=='Chat,Browser,This computer'||!companionUi.input||!companionUi.connection||!companionUi.stop)throw Error('Companion chat smoke failed');
+      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT){await mkdir(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,{recursive:true});await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'chat-welcome.png'),(await chat.webContents.capturePage()).toPNG());}
+      // Synthetic renderer data only; this never sends a task to the user's Seek host.
+      chat.webContents.send('link',{online:true,paired:true});
+      const smokeData={name:'Seek',look:{color:'mint'},tasks:[{id:'smoke-conversation',mode:'browser',title:'Find a good weeknight dinner',status:'complete',messages:[{role:'user',text:'Find a quick vegetarian dinner.'},{role:'assistant',text:'A lemony chickpea skillet is a good fit. It takes about 20 minutes and uses ingredients you can keep in the pantry.\n\nI found the recipe and saved the ingredients in Seek.'}],artifacts:[{title:'Recipe & shopping list'}]}]};chat.webContents.send('companion-data',smokeData);
+      companion.data=smokeData;const originalHostRequest=link.requestHost;link.requestHost=async()=>companion.data.tasks[0];
+      await chat.webContents.executeJavaScript("document.querySelector('#recent').value='smoke-conversation';document.querySelector('#recent').dispatchEvent(new Event('change'))");
+      await new Promise(r=>setTimeout(r,100));
+      if(process.env.SEEK_BRIDGE_SMOKE_OUTPUT)await writeFile(join(process.env.SEEK_BRIDGE_SMOKE_OUTPUT,'chat-conversation.png'),(await chat.webContents.capturePage()).toPNG());
+      link.requestHost=originalHostRequest;chat.hide();
       const response=await fetch(status().endpoint+'/status',{headers:{Authorization:'Bearer '+token}});
       const blocked=await fetch(status().endpoint+'/status');
       if(title!=='Seek Desktop'||!mounted||!texture||!visibleStop||response.status!==200||blocked.status!==403)throw Error('Packaged app smoke checks failed: '+JSON.stringify({title,mounted,texture,visibleStop,status:response.status,blocked:blocked.status}));

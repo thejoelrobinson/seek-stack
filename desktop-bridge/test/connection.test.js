@@ -37,6 +37,8 @@ test('paired companion and Seek exchange RPC only over WebRTC; relays see cipher
   await waitFor(async()=>link.online&&(await hub.machines())[0].online);
   await hub.grant(computer.id,{id:'synthetic-task',title:'private-marker-c7c124f6'});await waitFor(()=>hub.machineFor('synthetic-task'));
   const observation=await hub.clientFor(computer.id).request('/observe',{sessionId:'synthetic',epoch:1});assert.equal(observation.title,'private-marker-c7c124f6');assert.equal(observation.elements[0].value.length,70000);
+  hub.companionHandler=(id,_state,msg)=>{assert.equal(id,computer.id);assert.equal(msg.method,'create');return {id:'fixture-conversation',message:msg.body.text};};
+  const conversation=await link.requestHost('create',{text:'private-marker-c7c124f6'});assert.equal(conversation.id,'fixture-conversation');assert.equal(conversation.message,'private-marker-c7c124f6');
   assert.ok(signals.length>=3);assert.ok(signals.every(s=>JSON.parse(s).type==='rtc'));assert.ok(signals.every(s=>!s.includes('private-marker-c7c124f6')));
   assert.ok(wire.length>0);assert.ok(wire.every(bytes=>!bytes.includes(Buffer.from('private-marker-c7c124f6'))),'application data must not appear in captured transport packets');
   for(const peer of peers){assert.equal(peer.pc.dtlsTransports[0].state,'connected');peer.pc.dtlsTransports[0].verifyRemoteCertificateFingerprint();assert.equal(peer.pc.iceTransports[0].connection.stunServer,undefined);}

@@ -129,6 +129,15 @@ export class DesktopHub{
   }
   receive(link,m){
     if(!m||typeof m!=='object')return;
+    if(m.type==='companion-request'){
+      if(!/^ui_[a-f0-9]{32}$/.test(m.id||'')||!['list','create','get','start','reply','pause','resume'].includes(m.method)||!m.body||typeof m.body!=='object'||Array.isArray(m.body)||JSON.stringify(m.body).length>12000)return;
+      const reply=out=>{if(this.links.get(link.device.id)===link&&link.ready)this.send(link.device.id,{type:'companion-result',id:m.id,...out});};
+      if((link.companionFlight||0)>=8){reply({ok:false,error:'Seek is busy. Try again shortly.'});return;}
+      link.companionFlight=(link.companionFlight||0)+1;
+      void Promise.resolve().then(()=>{if(!this.companionHandler)throw Error('Update Seek to use companion chat.');return this.companionHandler(link.device.id,link.state,m);})
+        .then(result=>reply({ok:true,result}),e=>reply({ok:false,error:clean(e.message,500)})).finally(()=>link.companionFlight--);
+      return;
+    }
     if(m.type==='hello'){
       // The name chosen when pairing wins over the computer's host name.
       link.info={name:link.device.name||clean(m.name,60),os:OS_NAMES[m.os]?m.os:link.device.os,arch:clean(m.arch,12),version:clean(m.version,20),remoteGrant:!!m.remoteGrant};
@@ -191,6 +200,8 @@ export class DesktopControl{
   async owner(exec){
     const o=await this.resolveOwner(exec);
     if(!o||o.child||!o.taskId||!o.sessionId||o.sessionId!==exec?.agent?.id||!['running','waiting','queued'].includes(o.status))throw new Error('Desktop control is available only to the active parent task');
+    const mode=o.execution?.mode||o.companion?.mode;
+    if(mode&&mode!=='desktop')throw Error('This task was started in Chat or Seek’s browser. Start a task on a computer to use the desktop.');
     return o;
   }
   async localStatus(){try{const c=await this.local.createClient();return {client:c,status:await c.request('/status')};}catch{return null;}}
@@ -203,6 +214,8 @@ export class DesktopControl{
   }
   async forExecution(exec){
     exec?.signal?.throwIfAborted();const o=await this.owner(exec);
+    const target=o.execution?.deviceId||o.companion?.deviceId;
+    if(target&&(!o.execution?.autoRemote||o.execution.granted)&&this.hub.machineFor(o.taskId)?.id!==target)throw Error('This computer is paused. Ask the user to continue the task in Seek.');
     if(this.current&&this.current.taskId===o.taskId&&this.currentSession===o.sessionId&&this.current.client.auth)return this.current;
     if(this.attaching)throw new Error('Desktop attachment is in progress');
     this.attaching=true;
@@ -210,7 +223,7 @@ export class DesktopControl{
       let client=null,where=this.hub.machineFor(o.taskId);
       if(where)client=this.hub.clientFor(where.id);
       else if(this.local){const l=await this.localStatus();if(l?.status.state==='agent'&&l.status.taskId===o.taskId){client=l.client;where={id:'local',name:'this PC'};}}
-      if(!client)throw new Error(await this.requestGrant(o,exec));
+      if(!client){const message=await this.requestGrant(o,exec);where=this.hub.machineFor(o.taskId);if(where&&(!target||where.id===target))client=this.hub.clientFor(where.id);else throw new Error(message);}
       this.current?.close();this.current=null;
       const agent=new DesktopAgent({client,taskId:o.taskId});
       try{await agent.attach();exec?.signal?.throwIfAborted();if(where.id!=='local'&&this.hub.machineFor(o.taskId)?.id!==where.id)throw Error('The secure desktop grant ended during attachment');}catch(e){agent.close();throw e;}

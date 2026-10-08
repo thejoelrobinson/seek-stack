@@ -97,3 +97,9 @@ Protocol references: [IETF WebRTC security architecture](https://www.rfc-editor.
 [werift implementation](https://github.com/shinyoshiaki/werift-webrtc),
 [Electron protected storage](https://www.electronjs.org/docs/latest/api/safe-storage), and
 [coturn configuration](https://github.com/coturn/coturn/blob/master/README.turnserver).
+
+## Companion chat and remote task launch (0.5 / Work 0.8)
+
+Clicking the local mascot opens a sandboxed local chat window. Only that window’s main frame may submit or continue tasks, choose a computer or open a task on the pinned Seek origin. Chat and progress travel through the authenticated WebRTC data channel. Requests are bounded, disconnect rejects pending requests, and neither signaling nor a plaintext fallback carries task content. The host limits conversations to their originating device or the device currently granted that task.
+
+A local desktop task is durably paused until its initiating button grants that specific task. Remote task launch uses the paired computer’s saved remote-control opt-in (`remoteGrant`); it does not require a person to click Allow there. Seek acquires the selected computer when the task first uses desktop tools, avoiding expired grants while tasks are queued. Tasks stay bound to that computer. Stop or a lost connection revokes local input and pauses active work; reconnecting cannot silently regrant control. An explicit remote Continue/reply can start work again under the saved opt-in. Turning off remote control refuses subsequent grants. OS accessibility permissions still require initial local setup.

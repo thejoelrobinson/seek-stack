@@ -10,6 +10,7 @@ test('a tagged Mac release cannot silently skip signing or notarization', () => 
  assert.doesNotThrow(() => assertMacReleaseCredentials(ready, 'darwin'));
  assert.doesNotThrow(() => assertMacReleaseCredentials({}, 'darwin'));
  assert.doesNotThrow(() => assertMacReleaseCredentials(tagged, 'win32'));
+ assert.doesNotThrow(() => assertMacReleaseCredentials({...tagged,SEEK_MAC_ALLOW_UNNOTARIZED_PREVIEW:'1'},'darwin'));
 });
 test('notarization accepts complete password, API key or keychain credentials only', () => {
  assert.equal(macNotarizationCredentials({APPLE_ID: 'fixture'}), null);
