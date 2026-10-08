@@ -1,6 +1,7 @@
 const signedMacRelease = process.env.SEEK_MAC_SIGNED_RELEASE === '1';
 module.exports = {
   appId: 'com.joelcrobinson.seek.desktop', productName: 'Seek Desktop',
+  forceCodeSigning: process.platform === 'darwin' && signedMacRelease,
   protocols: [{name:'Seek Desktop connection',schemes:['seek-desktop']}],
   directories: {output: 'dist'},
   // binary-data ships its own implementation under src/node_modules, rather than

@@ -7,6 +7,8 @@ export function macNotarizationCredentials(env = process.env) {
  return null;
 }
 export function assertMacReleaseCredentials(env = process.env, platform = process.platform) {
+ // GitHub represents missing optional secrets as empty strings; builder otherwise imports an empty certificate.
+ if (env.CSC_LINK === '') delete env.CSC_LINK;
  if (platform !== 'darwin') return;
  const tagged = /^refs\/tags\/bridge-v/.test(env.GITHUB_REF || '');
  if (tagged && env.SEEK_MAC_SIGNED_RELEASE !== '1')
