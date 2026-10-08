@@ -321,7 +321,7 @@ ${purchase?`\n${PURCHASE_SKILL}\n`:''}${walmart?`\n${WALMART_SKILL}\n`:''}Work e
     if(t.status!=='complete'||!(t.repeatHours||t.schedule)||t.repeatCreated)return;
     if(!t.nextOccurrenceAt){t.nextOccurrenceAt=t.schedule?nextCalendarRun(t.schedule,Math.max(t.completedAt||Date.now(),t.runAt),calendarParts(t.runAt,t.schedule.timeZone).date):(t.completedAt||Date.now())+t.repeatHours*3600000;await this.save();}
     const files=[];for(const name of t.inputs||[]){const input=await this.file(t,name);files.push({name,data:(await readFile(input.full)).toString('base64')});}
-    await this.create({objective:t.objective,mode:t.mode,runAt:new Date(t.nextOccurrenceAt).toISOString(),repeatHours:t.repeatHours,schedule:t.schedule,files,contract:t.contract,templateId:t.templateId,project:t.project,domain:t.domain,requestId:'occurrence_'+t.id+'_'+t.nextOccurrenceAt});t.repeatCreated=true;await this.save();
+    await this.create({objective:t.objective,mode:t.mode,runAt:new Date(t.nextOccurrenceAt).toISOString(),repeatHours:t.repeatHours,schedule:t.schedule,files,contract:t.contract,templateId:t.templateId,project:t.project,domain:t.domain,requestId:'occurrence_'+t.id+'_'+t.nextOccurrenceAt},{execution:t.execution?{...t.execution,granted:false}:undefined,companion:t.companion?{...t.companion}:undefined});t.repeatCreated=true;await this.save();
   }
   async tick() {
     if(this.ticking||this.stopped)return;this.ticking=true;

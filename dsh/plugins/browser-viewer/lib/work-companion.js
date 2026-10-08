@@ -61,9 +61,9 @@ export class CompanionService {
   async createRemote(params,id,companion) {
     const m=(await this.hub.machines()).find(m=>m.id===id);
     if(!m?.verified||!m.remoteGrant)throw Error('Remote control is not enabled on that computer.');
-    if(!m.online)throw Error('That computer is offline. Open Seek Desktop there and try again.');
-    if(m.state==='agent')throw Error('That computer is already running a task.');
-    if(params.runAt||params.schedule||params.repeatHours)throw Error('Start remote desktop tasks now; scheduling is not supported yet.');
+    const later=!!params.schedule||!!params.runAt&&Date.parse(params.runAt)>Date.now();
+    if(!later&&!m.online)throw Error('That computer is offline. Open Seek Desktop there and try again.');
+    if(!later&&m.state==='agent')throw Error('That computer is already running a task.');
     const t=await this.engine.operation(()=>this.engine.create(params,{companion,execution:{mode:'desktop',deviceId:id,name:m.name,autoRemote:true,granted:false}}));
     if(t.execution?.deviceId!==id)throw Error('This request was already sent to another computer.');
     return t;
