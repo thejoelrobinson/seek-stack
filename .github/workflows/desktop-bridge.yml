@@ -7,6 +7,11 @@ on:
     tags: ['bridge-v*']
     paths: ['desktop-bridge/**', '.github/workflows/desktop-bridge.yml']
   workflow_dispatch:
+    inputs:
+      inspect_release:
+        description: 'Optional existing bridge-vX.Y.Z Mac release to inspect before building'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -23,8 +28,14 @@ jobs:
       run:
         working-directory: desktop-bridge
     env:
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.MAC_CERTIFICATE != '' && 'true' || 'false' }}
       SEEK_BRIDGE_SMOKE_OUTPUT: smoke-output
+      SEEK_MAC_SIGNED_RELEASE: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.MAC_CERTIFICATE != '' && '1' || '0' }}
+      CSC_LINK: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.MAC_CERTIFICATE || '' }}
+      CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.MAC_CERTIFICATE_PASSWORD || '' }}
+      APPLE_ID: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.APPLE_ID || '' }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+      APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && github.event_name != 'pull_request' && secrets.APPLE_TEAM_ID || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,6 +61,15 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y xvfb xdotool python3-gi gir1.2-atspi-2.0 at-spi2-core dbus-x11 openbox
+      - name: Inspect reported Mac download
+        if: runner.os == 'macOS' && github.event_name == 'workflow_dispatch' && inputs.inspect_release != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSPECT_RELEASE: ${{ inputs.inspect_release }}
+        run: |
+          [[ "$INSPECT_RELEASE" =~ ^bridge-v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release download "$INSPECT_RELEASE" --pattern '*mac-universal.dmg' --dir "$RUNNER_TEMP/mac-release-inspect"
+          node scripts/verify-mac.mjs --inspect --dmg "$RUNNER_TEMP/mac-release-inspect/seek-desktop-${INSPECT_RELEASE#bridge-v}-mac-universal.dmg"
       - run: npm run build:dir
       - name: Configure packaged Linux sandbox on the runner
         if: runner.os == 'Linux'
@@ -67,6 +87,9 @@ jobs:
         if: runner.os == 'Linux'
         run: dbus-run-session -- xvfb-run -a bash scripts/linux-smoke.sh
       - run: npm run package
+      - name: Verify final Mac DMG and ZIP signatures, architectures and launch
+        if: runner.os == 'macOS'
+        run: npm run verify:mac
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -101,7 +124,7 @@ jobs:
           # Artifacts keep their folders: installers in dist/, smoke screenshots (not released) in smoke-output/.
           cd release/dist
           sha256sum * > SHA256SUMS
-          printf '%s\n' 'Seek Desktop developer preview. Desktop control uses authenticated WebRTC with verified device keys. Connect using a one-use link in Seek Settings > Computers; identities verify automatically. Old pairings require pairing again. Configure an Internet relay once in Seek Settings > Computers > Connections. Unsigned installers; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI, X11 at 100% scaling and an unlocked protected keychain. Windows selected-window fill/invoke support background operation. Wayland control and human screen streaming remain unfinished. See desktop-bridge/SECURITY.md for the trust boundary and validation limits.' > "$RUNNER_TEMP/notes.md"
+          printf '%s\n' 'Seek Desktop developer preview. Desktop control uses authenticated WebRTC with verified device keys. Connect using a one-use link in Seek Settings > Computers; identities verify automatically. Old pairings require pairing again. Mac installers are Developer ID signed, notarized and verified as universal Intel/Apple silicon bundles. Windows/Linux installers are unsigned; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI, X11 at 100% scaling and an unlocked protected keychain. Windows selected-window fill/invoke support background operation. Wayland control and human screen streaming remain unfinished. See desktop-bridge/SECURITY.md for the trust boundary and validation limits.' > "$RUNNER_TEMP/notes.md"
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --verify-tag --draft --prerelease --title "Seek Desktop $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
           fi

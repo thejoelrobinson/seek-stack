@@ -12,12 +12,13 @@
     "smoke": "node scripts/smoke.mjs",
     "smoke:turn": "node scripts/turn-smoke.mjs",
     "smoke:packaged": "node scripts/smoke.mjs --packaged",
-    "build:dir": "npm run build:native && electron-builder --dir --publish never",
-    "build": "npm run build:native && electron-builder --publish never",
+    "build:dir": "node scripts/build.mjs --dir",
+    "build": "node scripts/build.mjs",
     "test:python": "python -m unittest discover -s test -p test_*.py",
     "smoke:input": "node scripts/smoke.mjs --input",
     "smoke:packaged:input": "node scripts/smoke.mjs --packaged --input",
-    "package": "node scripts/package.mjs"
+    "package": "node scripts/package.mjs",
+    "verify:mac": "node scripts/verify-mac.mjs"
   },
   "devDependencies": {
     "electron": "44.5.1",

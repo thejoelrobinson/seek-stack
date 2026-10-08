@@ -1,10 +1,10 @@
-import {createRequire} from 'node:module';import {spawn} from 'node:child_process';import {readdir} from 'node:fs/promises';import {join,resolve} from 'node:path';
+import {createRequire} from 'node:module';import {spawn} from 'node:child_process';import {join,resolve} from 'node:path';import {packagedPath} from './packaged-path.mjs';
 let executable,args;
 if(process.argv.includes('--packaged')){
  if(process.platform==='win32')executable=resolve('dist/win-unpacked/Seek Desktop.exe');
  else if(process.platform==='darwin'){
-  const folders=await readdir('dist');const folder=['mac-universal',process.arch==='arm64'?'mac-arm64':'mac'].find(x=>folders.includes(x));
-  if(!folder)throw Error('Native packaged macOS app missing');executable=resolve(join('dist',folder,'Seek Desktop.app/Contents/MacOS/Seek Desktop'));
+  const app = process.env.SEEK_MAC_SMOKE_APP || packagedPath();
+  executable=resolve(join(app,'Contents/MacOS/Seek Desktop'));
  }else executable=resolve('dist/linux-unpacked/seek-desktop-bridge');
  args=['--smoke'];
 }else{executable=createRequire(import.meta.url)('electron');args=['.','--smoke'];}
