@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+const socket=new WebSocket('ws://127.0.0.1:3080/browser/stream');
+await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject;});
+let browser;
+const running=new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Native browser start timeout')),15000);socket.onmessage=event=>{if(typeof event.data!=='string')return;const value=JSON.parse(event.data);if(value.type==='status'&&value.running){clearTimeout(timeout);browser=value;resolve();}};});
+socket.send(JSON.stringify({type:'start',url:'about:blank'}));await running;assert.ok(!browser.error,browser.error);socket.close();
+const health=(await fetch('http://127.0.0.1:3080/work/api/updates').then(r=>r.json())).health.models;
+assert.equal(health.active,false);assert.equal(health.recoveryRequired,false);assert.equal(health.language.state,'ready');assert.equal(health.image.state,'standby');
+const result={passed:true,checks:['native browser starts with retained profile','chat model ready','image model on demand','no active handoff or recovery']};
+await writeFile(new URL('./validation/final-health.json',import.meta.url),JSON.stringify(result,null,2));
+const manifest=JSON.parse(await readFile(new URL('./release-manifest.json',import.meta.url)));manifest.validation.finalHealth=result;await writeFile(new URL('./release-manifest.json',import.meta.url),JSON.stringify(manifest,null,2));console.log(JSON.stringify(result));

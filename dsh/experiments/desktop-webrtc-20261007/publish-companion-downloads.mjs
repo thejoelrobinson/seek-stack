@@ -1,0 +1,10 @@
+import {readFile,writeFile,stat,copyFile,rename,mkdir} from 'node:fs/promises';
+import {join,resolve} from 'node:path';import {createHash} from 'node:crypto';import {createReadStream} from 'node:fs';
+if(await stat(join(process.env.USERPROFILE,'.dsh/deployment.lock.json')).then(()=>true,e=>{if(e.code==='ENOENT')return false;throw e;}))throw Error('Finish the server deployment before publishing downloads.');
+const version='0.5.1',ciRun=37851619104,source=resolve('desktop-bridge/dist/ci-release-'+version),target=join(process.env.USERPROFILE,'.dsh/work/downloads'),manifest=join(target,'manifest.json');
+async function digest(file){const h=createHash('sha256');for await(const c of createReadStream(file))h.update(c);return h.digest('hex');}
+const expected=new Map((await readFile(join(source,'SHA256SUMS'),'utf8')).trim().split(/\r?\n/).map(l=>l.split(/\s+/)).map(([h,n])=>[n,h]));
+const defs=[['win-x64.exe','win32','installer','x64'],['win-x64.zip','win32','zip','x64'],['mac-universal.dmg','darwin','dmg','universal'],['mac-universal.zip','darwin','zip','universal'],['linux-x86_64.AppImage','linux','appimage','x64'],['linux-amd64.deb','linux','deb','x64']],files=[];
+for(const [suffix,os,kind,arch] of defs){const name='seek-desktop-'+version+'-'+suffix,input=join(source,name),info=await stat(input),sha256=await digest(input);if(info.size<10000000||expected.get(name)!==sha256)throw Error('Verified release hash failed for '+name);const tmp=join(target,name+'.staged');await copyFile(input,tmp);if(await digest(tmp)!==sha256)throw Error('Staged file changed');await rename(tmp,join(target,name));files.push({name,os,kind,arch,size:info.size,sha256,...(os==='darwin'?{signing:'adhoc',notarized:false}:{})});}
+const backup=join(process.env.USERPROFILE,'.dsh/browser/backups/companion-downloads-'+Date.now());await mkdir(backup,{recursive:true});await copyFile(manifest,join(backup,'manifest.json'));
+await writeFile(manifest+'.staged',JSON.stringify({version,ciRun,commit:'fb8950e',published:Date.now(),files},null,2));await rename(manifest+'.staged',manifest);console.log(JSON.stringify({version,ciRun,installers:files.length,sha256Verified:true,backup}));

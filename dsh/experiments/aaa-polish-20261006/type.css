@@ -1,0 +1,72 @@
+
+/* ── Type system ─────────────────────────────────────────────────────────────
+   Eight sizes, three weights, one role per job. Pick a role; never a raw size.
+     Display   34/1.15 600  home greeting, hero figures
+     Title 1   28/1.2  600  page titles, large figures
+     Title 2   20/1.3  600  panel and section titles, dialog titles, conversation title
+     Title 3   17/1.35 600  card-group headings, markdown h2
+     Body L    15/1.65 400  reading: chat, markdown, prompts         (600 for item titles)
+     Body      14/1.5  400  default UI text                          (500 labels/nav, 600 row titles)
+     Small     13/1.45 400  secondary text, buttons, chips           (500 for buttons)
+     Caption   12/1.35 400  timestamps, badges, meta, legends, kbd   (500 for badges/labels)
+   Weights: 400 reads, 500 is something you can click or a label, 600 is a heading or a figure. */
+:root{
+  --t-xs:12px;--t-sm:13px;--t-base:14px;--t-read:15px;--t-lg:17px;--t-xl:20px;--t-2xl:28px;--t-hero:34px;
+  --type-display:600 34px/1.15 var(--font-display);
+  --type-title-1:600 28px/1.2 var(--font-display);
+  --type-title-2:600 20px/1.3 var(--font-display);
+  --type-title-3:600 17px/1.35 var(--font-display);
+  --type-body-l:400 15px/1.65 var(--font);
+  --type-body:400 14px/1.5 var(--font);
+  --type-label:500 14px/1.3 var(--font);
+  --type-small:400 13px/1.45 var(--font);
+  --type-button:500 13px/1.3 var(--font);
+  --type-caption:400 12px/1.35 var(--font);
+  --type-badge:500 12px/1.3 var(--font);
+  --track-display:-.025em;--track-title:-.018em;--track-title-3:-.01em;
+}
+/* Weights: bold is semibold everywhere, including inside feature modules and markdown. */
+[data-experience] :is(b,strong,th,h1,h2,h3,h4,h5,h6),[data-experience] :is(.finance,.images,.growth,.dream-panel,.settings-body,.agent-panel,.conversation) :is(b,strong,h1,h2,h3,h4,h5,h6){font-weight:600}
+/* Display */
+[data-experience] .home-greet h2{font:var(--type-display);letter-spacing:var(--track-display)}
+[data-experience] .fin-v2-net>strong,[data-experience] .growth-score strong{font:var(--type-display);letter-spacing:var(--track-display);font-variant-numeric:tabular-nums}
+/* Title 1 */
+[data-experience] :is(.page-head h1,.settings-intro h2,.images-head h2,.fin-head h2,.dream-heading h2,.growth-head h2,.fin-connect h2){font:var(--type-title-1);letter-spacing:var(--track-title)}
+[data-experience] .fin-v2-metric>strong{font:var(--type-title-1);letter-spacing:var(--track-title);font-variant-numeric:tabular-nums}
+/* Title 2 */
+[data-experience] :is(.conv-title,.ap-title strong,dialog h2,.fin-section-title h3,.studio-library-head h2,.fin-v2-donut strong){font:var(--type-title-2);letter-spacing:var(--track-title)}
+/* Title 3 */
+[data-experience] :is(.appearance-editor h3,.settings-body h3,.result-head h2,.model-journey-copy h3,.md h1,.md h2){font:var(--type-title-3);letter-spacing:var(--track-title-3)}
+[data-experience] .md h3{font:600 var(--t-read)/1.4 var(--font-display)}
+[data-experience] .md h4{font:600 var(--t-base)/1.4 var(--font)}
+/* Body L: reading text and the titles of the things you read */
+[data-experience] :is(.md,.bubble.user,.bubble.assistant,#prompt){font-family:var(--font);font-size:var(--t-read);line-height:1.65;font-weight:400}
+[data-experience] :is(.headsup strong,.workflow-card h3,.idea-card h3){font:600 var(--t-read)/1.35 var(--font)}
+/* Body: rows, list items and card titles */
+[data-experience] :is(.task-card h3,.row-title,.file-card strong,.ap-task,.palette-item strong,.idea,.growth-case-top strong,.fin-account-name strong,.fin-connection-main strong,.fin-row strong,.fin-v2-merchant strong,.dream-run strong,.memory-history strong){font:600 var(--t-base)/1.4 var(--font);letter-spacing:0}
+[data-experience] :is(.ap-activity strong,.connection-list strong,.settings-body li>div>strong){font:600 var(--t-sm)/1.4 var(--font)}
+[data-experience] :is(.fin-account-balance strong,.fin-v2-merchant>b,.fin-row>b,.fin-v2-cat-value strong,.fin-v2-budget strong,.fin-v2-income-list b){font-weight:600;font-variant-numeric:tabular-nums}
+/* Labels: navigation, field labels, tabs */
+[data-experience] :is(.side-nav button,.side-foot-nav button,.side-search,.settings-nav button,.settings-nav a){font:var(--type-label)}
+[data-experience] .new-task{font:600 var(--t-base)/1.3 var(--font)}
+[data-experience] .brand strong{font:600 var(--t-lg)/1 var(--font-display);letter-spacing:-.02em}
+[data-experience] :is(.memory label,#memory-form label,.appearance-fields label,#image-create label,.home-section-head h3){font:var(--type-button);font-size:var(--t-base)}
+/* Small: secondary text, buttons, chips */
+[data-experience] :is(.page-head p,.settings-intro p,.images-head p,.fin-head p,.dream-heading p,.growth-head p){font:var(--type-body);color:var(--muted)}
+[data-experience] :is(.task-card p,.row-title small,.headsup p,.ap-item p,.workflow-card p,.idea-card p,.idea small,.appearance-editor p,.file-card p,.growth-meta,.memory-meta,.fin-section-title p,.fin-v2-disclosure p,.studio-settings p,.autonomy-option small){font:var(--type-small);letter-spacing:0}
+[data-experience] :is(.plan li,.typing-bubble,.recent button,.palette-input input){font-weight:400}
+[data-experience] .plan li.working{font-weight:500}
+/* Caption: meta, timestamps, badges, legends, keyboard hints */
+[data-experience] :is(.eyebrow,.headsup-kind,.recent-label,.suggest-label,.ap-section-label,.look-label,.side-status,.speaker){letter-spacing:0;text-transform:none}
+[data-experience] :is(.task-card time,.row-state,.file-card small,.library-source,.compare-pick,.activity-log summary,.activity-log ul,.ap-activity time,.ap-activity span,.palette-item small,.palette-foot,.result-footer,.fin-account-name span,.fin-account-balance span,.fin-connection-main small,.fin-row small,.fin-v2-merchant small,.fin-v2-cat-value small,.fin-v2-month span,.fin-v2-chart-footer span,.fin-v2-legend span,.fin-v2-income-list span,.fin-v2-donut span,.fin-v2-budget span,.dream-run time,.memory-history time,.dream-lesson-top span:not(.dream-badge),.dream-lesson summary,.growth-trend-wrap small,.image-card small,.model-elapsed,.model-steps span,.studio-library-head label,.connection-list span,.settings-body li>div>span){font:var(--type-caption);letter-spacing:0}
+[data-experience] :is(.status,.headsup-kind,.headsup-ready,.dream-badge,.growth-chip,.fin-v2-auto-tag,.conv-project,.chip-pill,.image-status,.model-steps strong,.recent-label,.ap-section-label,.look-label,.eyebrow,kbd,.kbd){font:var(--type-badge);letter-spacing:0;text-transform:none}
+[data-experience] .growth-chip{text-transform:none}
+[data-experience] .md code{font-size:13px}
+[data-experience] .md pre{font-size:13px}
+/* Buttons: one size for regular buttons, one for compact ones */
+[data-experience] .primary,[data-experience] button.primary{font-weight:500}
+@media(max-width:640px){
+  :root{--type-display:600 28px/1.18 var(--font-display);--type-title-1:600 28px/1.2 var(--font-display)}
+  [data-experience] :is(.side-nav button,.side-foot-nav button,.side-search,.new-task){font-size:var(--t-read)}
+  [data-experience] .recent button{font-size:var(--t-base)}
+}

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sheet harness</title>
+<link rel="stylesheet" href="../../plugins/browser-viewer/lib/work.css">
+<style>body{margin:0}</style>
+</head><body>
+<!-- The browser sheet as work-browser.js builds it, in "you're in control" state, for layout checks. -->
+<div id="bv-sheet" class="bv-sheet"><div class="bv-shell" role="dialog" aria-label="Browser">
+  <header class="bv-top"><button class="bv-close" aria-label="Close browser">✕</button>
+    <div class="bv-where"><strong id="bv-title">Get excited: Deals start 10/5 …</strong><span id="bv-host">mail.google.com</span></div>
+    <span class="bv-who" id="bv-who">You're in control</span><button class="primary bv-main" id="bv-main">Hand back to Seek</button></header>
+  <div class="bv-banner you" id="bv-banner"></div>
+  <div class="bv-nav" id="bv-nav"><button aria-label="Back">‹</button><button aria-label="Forward">›</button><button aria-label="Reload">↻</button><input id="bv-addr" value="https://mail.google.com/mail/u/0/" aria-label="Address"></div>
+  <div class="bv-stage" id="bv-stage"><canvas id="bv-canvas"></canvas></div>
+  <footer class="bv-keys" id="bv-keys"><input id="bv-type" placeholder="Type into the page…" aria-label="Type into the page"><button aria-label="Backspace">⌫</button><button>Tab</button><button>Enter</button></footer>
+</div></div>
+<script>
+const old = location.search.includes('old');
+const msg = 'The browser only has your work Gmail (owner@example.com) signed in. To open your personal Gmail here: click your account avatar (top-right) → "Add another account" → sign in to your personal address. Once you\'re in your personal inbox, hand it back and I\'ll pick it up.';
+const say = `<strong>Your turn.</strong> ${msg} Seek is paused and can’t see the page while you’re in control. Passwords you type here never reach the agent.`;
+const vault = '<div class="bv-vault"><span>Tip: <a href="#">connect Bitwarden</a> and Seek can sign in for you next time, with your approval.</span></div>';
+document.getElementById('bv-banner').innerHTML = old ? `<div>${say}</div>${vault}` : `<div class="bv-note">${say}</div><button class="bv-more" type="button">More</button>${vault}`;
+// A phone-sized page frame, fitted like work-browser.js fit().
+const stage = document.getElementById('bv-stage').getBoundingClientRect(), c = document.getElementById('bv-canvas');
+c.width = Math.round(stage.width * 2); c.height = Math.round(stage.height * 2);
+const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#c33'; g.font = '48px sans-serif'; g.fillText('Phone page ' + Math.round(stage.width) + '×' + Math.round(stage.height), 30, 90);
+const s = Math.min(stage.width / c.width, stage.height / c.height); c.style.width = Math.floor(c.width * s) + 'px'; c.style.height = Math.floor(c.height * s) + 'px';
+document.title = 'stage ' + Math.round(stage.width) + 'x' + Math.round(stage.height);
+</script>
+</body></html>

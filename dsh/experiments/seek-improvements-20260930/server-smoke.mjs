@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile} from 'node:fs/promises';
+import {WorkAssets} from '../../plugins/browser-viewer/lib/work-assets.js';
+const origin='http://127.0.0.1:3081',assets=await new WorkAssets().init();
+async function api(path,body){const r=await fetch(origin+'/work/api/'+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const data=await r.json();assert.equal(r.status,200,JSON.stringify(data));return data;}
+const version=await api('version');assert.equal(version.release,assets.release);
+const summary=await api('updates');assert.ok(summary.tasks.every(t=>!t.messages));
+const idle=await api('updates?since='+summary.revision);assert.equal(idle.unchanged,true);assert.ok(Buffer.byteLength(JSON.stringify(idle))*120<1000000);
+const body={objective:'Isolated deployment regression fixture.',mode:'chat',requestId:'deployment-smoke-one',runAt:'2030-01-01T00:00:00Z',files:[{name:'fixture.txt',data:Buffer.from('persistent fixture').toString('base64')}]};
+const task=await api('task',body),duplicate=await api('task',body);assert.equal(task.id,duplicate.id);
+assert.equal(await readFile(task.cwd+'/'+task.inputs[0],'utf8'),'persistent fixture');
+const controller=new AbortController(),events=await fetch(origin+'/work/api/events',{signal:controller.signal});assert.equal(events.headers.get('content-type'),'text/event-stream');const reader=events.body.getReader();assert.match(new TextDecoder().decode((await reader.read()).value),/event: revision/);
+await api('control',{id:task.id,action:'pause'});const next=new TextDecoder().decode((await reader.read()).value);assert.match(next,/event: revision/);controller.abort();
+const delta=await api('updates?since='+summary.revision);assert.equal(delta.patch,true);assert.ok(delta.tasks.some(t=>t.id===task.id&&t.status==='paused'));
+const detail=await api('task?id='+task.id);assert.equal(detail.messages.length,1);assert.equal(detail.totalMessages,1);assert.ok(!('outbox'in detail));
+const state=await fetch(origin+'/work/api/state',{headers:{'Accept-Encoding':'gzip'}});assert.equal(state.headers.get('content-encoding'),'gzip');await state.json();
+const denied=await fetch(origin+'/work/api/updates',{headers:{Origin:'https://untrusted.example'}});assert.equal(denied.status,403);
+const invalid=await fetch(origin+'/work/api/task?id='+task.id+'&before=-1');assert.equal(invalid.status,400);
+const diagnostics=await api('diagnostics');assert.ok(diagnostics.endpoints.some(t=>t.failures));assert.equal(diagnostics.release,assets.release);
+const result={release:version.release,idleResponseBytes:Buffer.byteLength(JSON.stringify(idle)),summaryBytes:Buffer.byteLength(JSON.stringify(summary)),checks:['release identity','compact summary/delta','idle bandwidth','create idempotency','durable input file','SSE revisions','bounded detail','private JSON compression','origin fence','invalid-page rejection','failure diagnostics'],passed:true};
+await writeFile(new URL('./validation/server-smoke.json',import.meta.url),JSON.stringify(result,null,2));console.log(JSON.stringify(result));

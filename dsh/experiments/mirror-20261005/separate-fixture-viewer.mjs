@@ -1,0 +1,11 @@
+import {readFile,writeFile} from 'node:fs/promises';const file=new URL('../../plugins/browser-viewer/test/mirror-browser.test.mjs',import.meta.url);let s=await readFile(file,'utf8');
+s=s.replace("import {BrowserController} from '../lib/index.js';","import {BrowserController} from '../lib/index.js';\nimport {CdpBrowser} from '../lib/cdp.js';");
+s=s.replace('const messages=()=>',"const viewer=new CdpBrowser({headless:true,userDataDir:await mkdtemp(join(tmpdir(),'seek-mirror-viewer-'))});\nconst messages=()=>");
+s=s.replace('  await c.start(base);','  await viewer.launch();await c.start(base);');
+s=s.replaceAll('c.cdp.evaluate(ui,','viewer.evaluate(ui,').replaceAll('c.cdp.evaluate(sheet,','viewer.evaluate(sheet,').replaceAll("c.cdp.newTab(base+'/ui')","viewer.newTab(base+'/ui')").replaceAll("c.cdp.newTab(base+'/sheet')","viewer.newTab(base+'/sheet')").replaceAll('c.cdp.tabs.get(ui)','viewer.tabs.get(ui)').replaceAll('c.cdp.tabs.get(sheet)','viewer.tabs.get(sheet)').replaceAll('c.cdp.screenshot(sheet,','viewer.screenshot(sheet,').replaceAll('c.cdp.closeTab(sheet)','viewer.closeTab(sheet)');
+s=s.replace(/const sendUI=async m=>\{[^\n]+/g,part=>part.replaceAll('c.cdp.send','viewer.send'));
+s=s.split('\n').map(line=>line.includes('sheetSession')?line.replaceAll('c.cdp.send','viewer.send'):line).join('\n');
+s=s.replace("c.cdp.send('Emulation.setDeviceMetricsOverride',{width:1100,height:900,deviceScaleFactor:1,mobile:false},us)","viewer.send('Emulation.setDeviceMetricsOverride',{width:1100,height:900,deviceScaleFactor:1,mobile:false},us)");
+s=s.replace("c.cdp.send('Target.activateTarget',{targetId:ui})","viewer.send('Target.activateTarget',{targetId:ui})").replace('const nativePNG=(await c.cdp.send','const nativePNG=(await viewer.send');
+s=s.replace("const tab=(await c.cdp.listTabs()).find(t=>t.url===base+'/sheet')","const tab=(await viewer.listTabs()).find(t=>t.url===base+'/sheet')").replaceAll('c.cdp.evaluate(tab.id,','viewer.evaluate(tab.id,');
+s=s.replace('finally{await c.close();','finally{await viewer.close();await c.close();');await writeFile(file,s);

@@ -1,0 +1,46 @@
+# Keep authored experiment tools; all other files are local evidence or runtime data.
+*
+!*/
+!.gitignore
+!*.mjs
+!*.cjs
+!*.js
+!*.ps1
+!*.py
+!*.cmd
+!*.sh
+!*.html
+!*.css
+!package.json
+!package-lock.json
+!/README.md
+
+# Generated environments, dependencies, captures and old source snapshots.
+**/candidate/
+**/baseline/
+**/installed-backup/
+**/runtime-backup/
+**/harness-home/
+**/font-build-deps/
+**/node_modules/
+**/dependency-check/
+**/qwen-image/
+**/results/
+**/validation/
+**/research/
+**/source-before/
+**/before/
+**/outline-only/
+**/fidelity-base/
+**/out/
+**/storage/
+**/profiles/
+**/__pycache__/
+*.before*.js
+
+# Copied plugin snapshots; the maintained versions are in dsh/plugins/.
+/calendar-20261006/work-assets.js
+/calendar-20261006/work-client.js
+/calendar-20261006/work.html
+/desktop-20261007/work-server.js
+/desktop-20261007/work-tool-scope.js

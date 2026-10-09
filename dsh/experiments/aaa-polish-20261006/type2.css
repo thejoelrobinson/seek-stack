@@ -1,0 +1,15 @@
+/* Group labels (a heading over a list) are Caption in semibold, muted. */
+:root{--type-group:600 12px/1.3 var(--font)}
+[data-experience] :is(.recent-label,.ap-section-label,.palette-group,.palette-results .palette-label,.fin-v2-account-group h4,.suggest-label,.look-label){font:var(--type-group);letter-spacing:0;text-transform:none;color:var(--muted)}
+[data-experience] :is(.fin-v2-account-group h4 small,.finance strong>small){font:var(--type-caption);color:var(--muted)}
+/* Figures inside rows match the row's title size; dense legends use Small. */
+[data-experience] :is(.fin-account-balance strong,.fin-v2-merchant>b,.fin-row>b,.fin-v2-income-list b,.fin-v2-budget>div>strong){font:600 var(--t-base)/1.4 var(--font);font-variant-numeric:tabular-nums}
+[data-experience] .fin-v2-cat-value strong{font:600 var(--t-sm)/1.4 var(--font);font-variant-numeric:tabular-nums}
+[data-experience] .fin-v2-disclosure summary{font:var(--type-button)}
+/* Remaining settings text */
+[data-experience] :is(.section-copy,.dream-panel>p.section-copy,.growth>p.section-copy){font:var(--type-body);color:var(--muted)}
+[data-experience] :is(.toggle-row p,.look-pose){font:var(--type-small)}
+[data-experience] .look-pose{font:var(--type-caption)}
+[data-experience] .autonomy legend{font:var(--type-label);color:var(--ink)}
+/* The browser card's kicker joins the badge style; the sheet itself is untouched. */
+[data-experience] .bv-card .bv-kicker{font:var(--type-group);letter-spacing:0;text-transform:none;color:var(--muted)}
