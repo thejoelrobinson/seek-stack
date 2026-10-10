@@ -10,6 +10,7 @@ import {WorkAssets} from '../lib/work-assets.js';
 import {WorkUpdates,taskPage} from '../lib/work-updates.js';
 
 test('workbench, library/revisions, typed workflows, voice, focus, steering and Finance duplicate protection',async()=>{
+ let releaseTemplateRead,templateReads=0;const firstTemplateRead=new Promise(resolve=>releaseTemplateRead=resolve);
  const assets=await new WorkAssets().init(),now=Date.now(),errors=[],bodies=[],templates=[],streams=new Set();const financeRequests=[];let creates=0,backupCount=0,backupLocal=false,keyRequests=0;let devices=[{id:'this-device',identity:'owner',label:'Fixture browser',createdAt:now,lastSeenAt:now,current:true},{id:'other-device',identity:'owner',label:'Other fixture browser',createdAt:now,lastSeenAt:now,current:false}];
  const memories={settings:{enabled:false,time:'03:00',timezone:'America/Chicago'},runs:[],pending:0,running:false,counts:{active:1,review:0},lessons:[{id:'fixture-memory',text:'Use concise prose',kind:'preference',scope:'writing',status:'active',updatedAt:now,sources:[{taskId:'alpha',title:'Alpha report',quote:'Use concise prose'}]}]};
  const tasks=[{id:'alpha',title:'Alpha report',objective:'Create a sourced report',status:'complete',mode:'task',createdAt:now,updatedAt:now,messages:[{role:'user',text:'Create a report',time:now},{role:'assistant',text:'A finished fixture report.',time:now+1}],events:[],plan:[],contextUsed:[{text:'Use concise prose',scope:'personal'}],resultEvidence:{status:'verified',summary:'File checks only',checks:[{label:'Markdown is readable',status:'passed'}]},artifacts:[{id:'a1',title:'Report.md',type:'md',bytes:200,version:1,at:now},{id:'a2',title:'Report revised.md',type:'md',bytes:240,version:2,parentId:'a1',at:now+1}]},{id:'beta',title:'Beta task',objective:'Research a fixture',status:'running',mode:'task',createdAt:now,updatedAt:now,messages:[{role:'user',text:'Research a fixture',time:now}],events:[],plan:[{title:'Read sources',status:'working'}],progress:{step:2,total:5,current:'Read fixture sources',startedAt:now},artifacts:[]}];
@@ -25,7 +26,10 @@ test('workbench, library/revisions, typed workflows, voice, focus, steering and 
   if(url.pathname==='/work/api/task'&&req.method==='POST'){const body=await read();bodies.push(body);creates++;await new Promise(r=>setTimeout(r,100));const task={id:'created-'+creates,title:body.objective.slice(0,60),objective:body.objective,domain:body.domain,status:'queued',createdAt:now,updatedAt:Date.now(),messages:[{role:'user',text:body.objective,time:Date.now()}],artifacts:[],events:[],plan:[]};tasks.push(task);updates.refresh();return json(task);}
   if(url.pathname==='/work/api/task/update'){const body=await read(),task=tasks.find(t=>t.id===body.id);Object.assign(task,body);updates.refresh();return json(taskPage(task));}
   if(url.pathname==='/work/api/control'){const body=await read(),task=tasks.find(t=>t.id===body.id);bodies.push(body);if(body.action==='reply'){task.messages.push({role:'user',text:body.answer,time:Date.now()});task.deliveries=[{id:'delivery',text:body.answer,receivedAt:Date.now(),status:'received'}];}updates.refresh();return json(taskPage(task));}
-  if(url.pathname==='/work/api/templates'){if(req.method==='POST'){const body=await read();if(body.action==='remove')templates.splice(templates.findIndex(t=>t.id===body.id),1);else templates.push({id:'saved-workflow',...body});}return json({items:templates});}
+  if(url.pathname==='/work/api/templates'){
+   if(req.method==='POST'){const body=await read();if(body.action==='remove')templates.splice(templates.findIndex(t=>t.id===body.id),1);else templates.push({id:'saved-workflow',...body});releaseTemplateRead();return json({items:templates});}
+   const snapshot=structuredClone(templates);if(++templateReads===1)await firstTemplateRead;return json({items:snapshot});
+  }
   if(url.pathname==='/work/api/library/search')return json({query:url.searchParams.get('q'),hits:url.searchParams.get('q')==='hidden phrase'?[{taskId:'alpha',id:tasks[0].artifacts[0].id,excerpt:'…the <hidden phrase> inside…'}]:[]});
   if(url.pathname==='/work/api/search')return json({tasks:[{id:'alpha',title:'Alpha report',excerpt:'Fixture result containing evidence'}],artifacts:[],memories:[]});
   if(url.pathname==='/work/api/desktop')return json({computers:[{id:'fixture-mac',name:'Studio Mac',verified:true,remoteGrant:true,online:true,state:'human'}]});
@@ -99,4 +103,3 @@ test('workbench, library/revisions, typed workflows, voice, focus, steering and 
   assert.deepEqual(errors,[],'no runtime exceptions');
  }finally{for(const stream of streams)stream.end();await ui.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 });
-
