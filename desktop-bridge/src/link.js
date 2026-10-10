@@ -131,7 +131,7 @@ export class SeekLink{
     }
     if(msg.type==='request'){
       // Seek reaches this computer only through its own local API: same sessions, leases and checks.
-      if(!['GET','POST'].includes(msg.method)||!['/status','/heartbeat','/observe','/action','/stop'].includes(msg.path)){reply({type:'response',id:msg.id,status:404,body:{error:'Not found'}});return;}
+      if(!['GET','POST'].includes(msg.method)||!['/status','/heartbeat','/observe','/action','/operation','/script','/script-grant','/stop'].includes(msg.path)){reply({type:'response',id:msg.id,status:404,body:{error:'Not found'}});return;}
       if((this.inFlight||0)>=16)throw Error('Too many desktop requests');this.inFlight=(this.inFlight||0)+1;
       let out;try{out=await this.localRequest(msg.method,msg.path,msg.body);}catch(e){out={status:502,body:{error:e.message}};}finally{this.inFlight--;}
       reply({type:'response',id:msg.id,status:out.status,body:out.body});return;
