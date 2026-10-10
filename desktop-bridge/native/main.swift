@@ -3,10 +3,10 @@ import CoreGraphics
 import ApplicationServices
 
 func execute(_ command: [String: Any]) throws {
-  enum Failure: Error { case invalid, permission }
+  enum Failure: Error { case invalid }
   let kind=command["kind"] as? String ?? ""
   if kind == "probe" { return }
-  guard AXIsProcessTrusted() else { throw Failure.permission }
+  guard AXIsProcessTrusted() else { throw BridgeFailure.permission }
   try validateAccessibility(command)
   if kind == "invoke" || kind == "fill" { try performAccessibility(command); return }
   let point=CGPoint(x: (command["x"] as? Double) ?? 0, y: (command["y"] as? Double) ?? 0)
@@ -50,6 +50,11 @@ while let line=readLine() {
     else {try execute(c);result=["ok":true]}
     let encoded=try JSONSerialization.data(withJSONObject:result);print(String(data:encoded,encoding:.utf8)!)
   }
-  catch {print("{\"ok\":false,\"error\":\"macOS input failed; check Accessibility permission\"}")}
+  catch {
+    // Report the specific failure; a generic permission message hides focus and timing problems.
+    let message=(error as? BridgeFailure)?.description ?? "macOS input failed; check Accessibility permission"
+    let encoded=(try? JSONSerialization.data(withJSONObject:["ok":false,"error":message])).flatMap{String(data:$0,encoding:.utf8)}
+    print(encoded ?? "{\"ok\":false,\"error\":\"macOS input failed\"}")
+  }
   fflush(stdout)
 }

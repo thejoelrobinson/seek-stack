@@ -57,7 +57,7 @@ export class DesktopDevices{
 }
 
 export class DesktopHub{
-  constructor({devices,log=console,now=()=>Date.now(),peerFactory=createSecurePeer,ice=()=>iceConfiguration()}){Object.assign(this,{devices,log,now,peerFactory,ice});this.links=new Map();this.codes=new Map();this.invitations=new Map();this.failures=[];this.listeners=new Set();}
+  constructor({devices,log=console,now=()=>Date.now(),peerFactory=createSecurePeer,ice=()=>iceConfiguration()}){Object.assign(this,{devices,log,now,peerFactory,ice});this.links=new Map();this.codes=new Map();this.invitations=new Map();this.failures=[];this.listeners=new Set();this.handovers=new Set();}
   on(fn){this.listeners.add(fn);return ()=>this.listeners.delete(fn);}
   emit(event){for(const fn of this.listeners)try{fn(event);}catch(e){this.log.warn?.('Desktop event: '+e.message);}}
   /** A single-use pairing code, valid for ten minutes. */
@@ -228,7 +228,9 @@ export class DesktopControl{
       const agent=new DesktopAgent({client,taskId:o.taskId});
       try{await agent.attach();exec?.signal?.throwIfAborted();if(where.id!=='local'&&this.hub.machineFor(o.taskId)?.id!==where.id)throw Error('The secure desktop grant ended during attachment');}catch(e){agent.close();throw e;}
       this.current=agent;this.currentSession=o.sessionId;this.computer=where;
-      clearInterval(this.watchdog);this.watchdog=setInterval(async()=>{if(this.current!==agent)return;try{await this.owner(exec);}catch{if(this.current!==agent)return;this.current=null;clearInterval(this.watchdog);try{await agent.client.stop();}catch{}finally{agent.close();}}},1000);this.watchdog.unref?.();
+      // Seek releasing the computer itself (a rotated session, or a task that already ended) is a
+      // hand-over, not the person taking control, so it must not pause the task.
+      clearInterval(this.watchdog);this.watchdog=setInterval(async()=>{if(this.current!==agent)return;try{await this.owner(exec);}catch{if(this.current!==agent)return;this.current=null;clearInterval(this.watchdog);if(where.id!=='local')this.hub.handovers.add(o.taskId);try{await agent.client.stop();}catch{this.hub.handovers.delete(o.taskId);}finally{agent.close();}}},1000);this.watchdog.unref?.();
       return agent;
     }finally{this.attaching=false;}
   }
