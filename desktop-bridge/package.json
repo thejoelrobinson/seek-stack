@@ -10,6 +10,7 @@
     "check": "node scripts/check.mjs",
     "build:native": "node scripts/native.mjs",
     "signing:setup": "node scripts/personal-signing.mjs",
+    "benchmark:desktop": "node scripts/benchmark-desktop.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:turn": "node scripts/turn-smoke.mjs",
     "smoke:packaged": "node scripts/smoke.mjs --packaged",

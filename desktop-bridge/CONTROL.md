@@ -99,8 +99,11 @@ Node tests cover task/session fences, stale OCR targets, folder paging, output b
 and timeouts. Work tests exercise the phone approval's task/computer/session binding and local
 approval enforcement. CI compiles the universal Mac helper and packages all platforms.
 
-The local Windows fixture took about 2–3 ms for the one-call folder operation; this measures the
-bridge, not model inference, network latency or total phone-to-answer time. Before calling the
-under-a-minute goal achieved, time a real paired Mac and PC request in Seek and verify it uses
+The local Windows fixture took about 2–3 ms for the one-call folder operation. `npm run
+benchmark:desktop` uses the local Qwen model, the full desktop tool set, and an isolated Downloads
+fixture. It completed in 5.8 seconds with two model calls and one `desktop_list` tool call, correctly
+naming all three fixture entries. This includes local model inference, but not network latency or
+the complete Work task history. Before calling the phone-to-answer goal achieved, time a real
+paired Mac and PC request in Seek and verify it uses
 `desktop_list` rather than a navigation loop. Also validate live Mac menus/shortcuts, Vision,
 AppleScript Automation permission, and an upgrade using the same personal certificate.
