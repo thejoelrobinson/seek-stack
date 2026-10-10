@@ -6,6 +6,8 @@
 // Never used by Work tasks (measured over 80 task sessions, 6,830 calls) or replaced by a Work tool.
 const ALWAYS_HIDDEN=['workflow','ralph','subagent_fork','send_message','interrupt_agent','list_agents','exit_plan_mode','create_goal','todo_write'];
 const GROUPS=[
+  {match:/^routine_calendar_/,when:/\b(calendar|schedule|free|busy|meeting|agenda|today|tomorrow)\b/i},
+  {match:/^routine_grocery_/,when:/\b(grocer\w*|cart|shopping|walmart|pantry|food)\b/i},
   {match:/^finance_/,when:/\b(financ\w*|money|spend\w*|spent|budget\w*|bank\w*|transaction\w*|bills?|debt|income|net worth|balance|credit card|savings|cash ?flow|expenses?)\b/i,domain:'finance'},
   {match:/^purchases_/,when:/\b(purchases?|orders?|receipts?|walmart|amazon|target|costco|retailer\w*|bought|shopping|spend\w*|spent)\b/i},
   {match:/^discord_/,when:/\bdiscord\b/i},

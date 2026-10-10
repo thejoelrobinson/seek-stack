@@ -690,3 +690,62 @@ body.has-hero .title-block{visibility:hidden}
 [data-experience] .growth-big small{font:var(--type-body);color:var(--muted)}
 [data-experience] .growth-score strong{font:600 var(--t-read)/1.35 var(--font)}
 [data-experience] .growth-score p{font:var(--type-small);color:var(--muted)}
+
+/* Workflows: one entry, clear outcomes, and forms that accept ordinary inputs. */
+[data-experience] .workflow-section{margin-bottom:var(--sp-10)}
+[data-experience] .workflow-section-head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap;margin-bottom:var(--sp-5)}
+[data-experience] .workflow-section-head h2{font:var(--type-title-3);margin:0;color:var(--ink)}
+[data-experience] .workflow-section-head>h2{flex-basis:100%}
+[data-experience] .workflow-section-head p{font:var(--type-small);color:var(--muted);margin:var(--sp-1) 0 0}
+[data-experience] .workflow-section:first-of-type .workflow-section-head{gap:0}
+[data-experience] .workflow-section:first-of-type .workflow-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+[data-experience] .workflow-card{min-width:0;position:relative}
+[data-experience] .workflow-card>.workflow-card-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:var(--r-md);background:var(--accent-soft);color:var(--accent-ink);margin:0 0 var(--sp-3);flex:none}
+[data-experience] .workflow-card-icon .ic{width:22px;height:22px}
+[data-experience] .workflow-card>.workflow-card-actions{margin-top:var(--sp-3);display:flex}
+[data-experience] .workflow-card-actions button{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);height:40px;min-height:40px}
+[data-experience] .workflow-ready .workflow-card-actions button{width:100%}
+[data-experience] .workflow-manage{font:var(--type-small);color:var(--muted);margin-top:var(--sp-2)}
+[data-experience] .workflow-manage summary{cursor:pointer;padding:var(--sp-1) 0}
+[data-experience] .workflow-manage p{margin:var(--sp-2) 0}
+[data-experience] .workflow-manage button{margin:var(--sp-2) var(--sp-1) 0 0}
+[data-experience] .workflow-loading{font:var(--type-small);color:var(--muted)}
+[data-experience] .workflow-load-error{border:1px solid var(--line);background:var(--surface);border-radius:var(--r-md);padding:var(--sp-4);margin-bottom:var(--sp-4);display:flex;align-items:center;gap:var(--sp-4);flex-wrap:wrap}
+[data-experience] .workflow-load-error p{margin:0;font:var(--type-small);flex:1}
+[data-experience] .workflow-dialog{max-width:640px;max-height:calc(100dvh - 32px);padding:var(--sp-6);overflow:auto}
+[data-experience] .workflow-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+[data-experience] .workflow-dialog-head h2{font:var(--type-title-2);margin:0}
+[data-experience] .workflow-dialog-head .icon-btn{flex:none}
+[data-experience] .workflow-form>p{font:var(--type-body);margin:var(--sp-3) 0 var(--sp-5)}
+[data-experience] .workflow-form .workflow-context{font:var(--type-small);background:var(--surface-2);padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md)}
+[data-experience] .workflow-form label{font:var(--type-label);margin:var(--sp-5) 0;color:var(--ink-2);min-width:0}
+[data-experience] .workflow-form :is(input,select,textarea){font:var(--type-body);color:var(--ink);background:var(--surface);min-width:0;max-width:100%;box-sizing:border-box}
+[data-experience] .workflow-date-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-4)}
+[data-experience] .workflow-date-fields label{margin:0}
+[data-experience] .workflow-form .dialog-actions{margin-top:var(--sp-6);padding-top:var(--sp-4);border-top:1px solid var(--line)}
+[data-experience] .workflow-form .dialog-actions button{min-height:44px}
+[data-experience] .grocery-items{display:flex;flex-direction:column;gap:var(--sp-3)}
+[data-experience] .grocery-item{border:1px solid var(--line);border-radius:var(--r-md);padding:var(--sp-4);min-width:0}
+[data-experience] .grocery-item-fields{display:grid;grid-template-columns:minmax(0,1fr) 80px 112px 32px;align-items:end;gap:var(--sp-3)}
+[data-experience] .grocery-item-fields label{margin:0}
+[data-experience] .grocery-item-fields input{padding:10px 8px}
+[data-experience] .grocery-remove{align-self:end;margin-bottom:4px}
+[data-experience] .grocery-owned{font:var(--type-small);color:var(--muted);margin-top:var(--sp-3)}
+[data-experience] .grocery-owned summary{cursor:pointer}
+[data-experience] .grocery-owned>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-3)}
+[data-experience] .grocery-owned label{margin:var(--sp-3) 0 0}
+[data-experience] .grocery-add-actions{display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;margin-top:var(--sp-4)}
+[data-experience] .grocery-add-actions button{display:inline-flex;align-items:center;gap:var(--sp-2);min-height:40px}
+[data-experience] .workflow-form .workflow-form-error{font:var(--type-small);color:var(--bad);padding:var(--sp-3) var(--sp-4);border:1px solid currentColor;border-radius:var(--r-md)}
+[data-experience] .workflow-form [aria-invalid=true]{border-color:var(--bad)}
+@media(max-width:640px){
+ [data-experience] .workflow-section:first-of-type .workflow-grid{grid-template-columns:minmax(0,1fr)}
+ [data-experience] .workflows .workflow-grid{grid-template-columns:minmax(0,1fr)}
+ [data-experience] .workflow-dialog{padding:var(--sp-5);width:calc(100% - 24px)}
+ [data-experience] .workflow-date-fields{grid-template-columns:minmax(0,1fr);gap:var(--sp-5)}
+ [data-experience] .grocery-item{padding:var(--sp-3)}
+ [data-experience] .grocery-item-fields{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 32px;gap:var(--sp-2)}
+ [data-experience] .grocery-item-fields>label:first-child{grid-column:1/-1}
+ [data-experience] .grocery-item .grocery-remove{min-width:32px;width:32px}
+ [data-experience] .workflow-card-actions button{height:44px;min-height:44px}
+}

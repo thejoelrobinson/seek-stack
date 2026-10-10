@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0,20);
 const version=t=>t.__trackedRevision?String(t.revision||0):digest(t);
 export function taskSummary(t) {
-  return {id:t.id,title:t.title,objective:t.objective,status:t.status,mode:t.mode,activity:t.activity,createdAt:t.createdAt,updatedAt:t.updatedAt,startedAt:t.startedAt,completedAt:t.completedAt,runAt:t.runAt,repeatHours:t.repeatHours,schedule:t.schedule,pinned:!!t.pinned,project:t.project,progress:t.progress,contextUsed:t.contextUsed,resultEvidence:t.resultEvidence,deliveries:t.deliveries,archived:!!t.archived,sessionId:t.sessionId,question:t.question,approval:t.approval,handoff:t.handoff,artifacts:t.artifacts||[],events:(t.events||[]).slice(-3),version:version(t)};
+  return {id:t.id,title:t.title,objective:t.objective,status:t.status,mode:t.mode,activity:t.activity,createdAt:t.createdAt,updatedAt:t.updatedAt,startedAt:t.startedAt,completedAt:t.completedAt,runAt:t.runAt,repeatHours:t.repeatHours,schedule:t.schedule,pinned:!!t.pinned,project:t.project,progress:t.progress,workflow:t.workflow,contextUsed:t.contextUsed,resultEvidence:t.resultEvidence,deliveries:t.deliveries,archived:!!t.archived,sessionId:t.sessionId,question:t.question,approval:t.approval,handoff:t.handoff,artifacts:t.artifacts||[],events:(t.events||[]).slice(-3),version:version(t)};
 }
 export function taskPage(t,{before,limit=40}={}) {
   const count=t.messages?.length||0,end=before===undefined?count:Number(before);limit=Number(limit);
