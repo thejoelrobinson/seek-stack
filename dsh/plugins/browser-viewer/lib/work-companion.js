@@ -6,7 +6,7 @@ export class CompanionService {
   constructor({engine,hub,controlTask}) {
     Object.assign(this,{engine,hub,controlTask});
     this.off=hub.on(e=>{
-      if(e.type==='state'&&e.previousTask&&e.state.state!=='agent')this.release(e.id,e.previousTask);
+      if(e.type==='state'&&e.previousTask&&e.state.state!=='agent'&&!hub.handovers?.delete(e.previousTask))this.release(e.id,e.previousTask);
       if(e.type==='offline')for(const t of engine.store.tasks)this.release(e.id,t.id);
     });
   }

@@ -7,6 +7,11 @@ test('desktop task is durably paused until its originating computer grants contr
  await assert.rejects(s.service.handle('one',{}, {method:'start',body:{id:t.id}}),/Continue/);s.grant('two',t.id);await assert.rejects(s.service.handle('one',{}, {method:'start',body:{id:t.id}}),/Continue/);s.grant('one',t.id);await s.service.handle('one',{}, {method:'start',body:{id:t.id}});assert.equal(s.engine.task(t.id).status,'queued');await s.engine.tick();assert.equal(s.engine.task(t.id).status,'running');
  s.grant(null,null);s.hub.listener({type:'state',id:'one',previousTask:t.id,state:{state:'human'}});await s.engine.operations;assert.equal(s.engine.task(t.id).status,'paused');
 });
+test('a host-initiated hand-over between agent sessions keeps a remote task running',async()=>{
+ const s=await setup();s.hub.handovers=new Set();const t=await s.engine.create({objective:'Synthetic remote task'});t.execution={mode:'desktop',deviceId:'mac',autoRemote:true,granted:true};t.status='running';
+ s.hub.handovers.add(t.id);s.hub.listener({type:'state',id:'mac',previousTask:t.id,state:{state:'human'}});await s.engine.operations;assert.equal(s.engine.task(t.id).status,'running');assert.equal(s.hub.handovers.size,0);
+ s.hub.listener({type:'state',id:'mac',previousTask:t.id,state:{state:'human'}});await s.engine.operations;assert.equal(s.engine.task(t.id).status,'paused');
+});
 test('device conversation ownership and rich approvals cannot be bypassed',async()=>{
  const s=await setup(),t=await s.service.handle('one',{}, {method:'create',body:{mode:'browser',text:'Synthetic browser task',requestId:req}});await assert.rejects(s.service.handle('two',{}, {method:'get',body:{id:t.id}}),/not available/);assert.equal((await s.service.handle('two',{}, {method:'list',body:{}})).tasks.length,0);
  s.engine.task(t.id).approval={id:'fixture'};await assert.rejects(s.service.handle('one',{}, {method:'reply',body:{id:t.id,text:'Approve once',requestId:req}}),/Open this task/);assert.equal(s.engine.task(t.id).status,'queued');
