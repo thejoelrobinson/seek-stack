@@ -18,6 +18,8 @@ module.exports = {
   mac: {
     target: [{target: 'dmg', arch: ['universal']}, {target: 'zip', arch: ['universal']}],
     category: 'public.app-category.productivity',
+    extendInfo: {NSAppleEventsUsageDescription: 'Seek controls apps through AppleScript only after you approve scripting for the current task.'},
+    entitlements: 'native/entitlements.plist',
     // Re-sign modified Electron bundles. Ad-hoc signatures are for CI/local previews only.
     identity: personalMacIdentity || (signedMacRelease ? undefined : '-'),
     ...(personalMacIdentity ? {timestamp: 'none'} : {}),

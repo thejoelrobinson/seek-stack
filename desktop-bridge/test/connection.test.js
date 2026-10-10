@@ -29,7 +29,7 @@ test('paired companion and Seek exchange RPC only over WebRTC; relays see cipher
   await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin='http://127.0.0.1:'+server.address().port;
   link=new SeekLink({file:join(dir,'companion.json'),encrypt:s=>'test-protected:'+s,decrypt:s=>s.replace(/^test-protected:/,''),WebSocketImpl:WebSocket,peerFactory,
    info:()=>({name:'Synthetic PC',os:'win32',arch:'x64',version:'0.4.0'}),
-   localRequest:async(method,path,body)=>({status:200,body:path==='/observe'?{title:'private-marker-c7c124f6',elements:[{name:'Synthetic control',value:'x'.repeat(70000)}]}:{...state,method,path}}),
+   localRequest:async(method,path,body)=>({status:200,body:path==='/observe'?{title:'private-marker-c7c124f6',elements:[{name:'Synthetic control',value:'x'.repeat(70000)}]}:{...state,method,path,command:body?.command}}),
    grant:async(taskId)=>{state={state:'agent',taskId,activity:'Synthetic task'};link.sendState(state);},
    onDisconnect:()=>{stops++;state={state:'idle',taskId:null,activity:'Stopped'};link?.sendState(state);}});
   await link.pair({invitation:(await hub.createInvitation(origin)).url});const computer=(await devices.list())[0];
@@ -37,6 +37,11 @@ test('paired companion and Seek exchange RPC only over WebRTC; relays see cipher
   await waitFor(async()=>link.online&&(await hub.machines())[0].online);
   await hub.grant(computer.id,{id:'synthetic-task',title:'private-marker-c7c124f6'});await waitFor(()=>hub.machineFor('synthetic-task'));
   const observation=await hub.clientFor(computer.id).request('/observe',{sessionId:'synthetic',epoch:1});assert.equal(observation.title,'private-marker-c7c124f6');assert.equal(observation.elements[0].value.length,70000);
+  const client=hub.clientFor(computer.id);
+  for(const path of ['/operation','/script','/script-grant']){
+    const result=await client.request(path,{sessionId:'synthetic',epoch:1,command:{kind:'list',path:'private-marker-c7c124f6'}});
+    assert.equal(result.path,path);assert.equal(result.command.path,'private-marker-c7c124f6');
+  }
   hub.companionHandler=(id,_state,msg)=>{assert.equal(id,computer.id);assert.equal(msg.method,'create');return {id:'fixture-conversation',message:msg.body.text};};
   const conversation=await link.requestHost('create',{text:'private-marker-c7c124f6'});assert.equal(conversation.id,'fixture-conversation');assert.equal(conversation.message,'private-marker-c7c124f6');
   assert.ok(signals.length>=3);assert.ok(signals.every(s=>JSON.parse(s).type==='rtc'));assert.ok(signals.every(s=>!s.includes('private-marker-c7c124f6')));

@@ -68,10 +68,16 @@ async function capture({screenText=false}={}){
       const protectedFields=view.elements.filter(e=>e.password);
       view.elements.push(...recognized.elements.filter(e=>!protectedFields.some(p=>e.x<p.x+p.width&&e.x+e.width>p.x&&e.y<p.y+p.height&&e.y+e.height>p.y)));
     }
-    const elements=view.elements.map(e=>{
+    const normalized=view.elements.map(e=>{
       if(process.platform!=='win32')return {...e,x:e.x-display.x,y:e.y-display.y};
       const top=screen.screenToDipPoint({x:Math.round(e.x),y:Math.round(e.y)}),bottom=screen.screenToDipPoint({x:Math.round(e.x+e.width),y:Math.round(e.y+e.height)});return {...e,x:top.x-display.x,y:top.y-display.y,width:bottom.x-top.x,height:bottom.y-top.y};
     });
+    // Keep the wire observation within the WebRTC message bound, even when apps repeat long values.
+    let bytes=0;const elements=[];
+    for(const e of normalized){
+      const bounded={...e,name:String(e.name||'').slice(0,512),...(e.value?{value:String(e.value).slice(0,512)}:{})};
+      const length=Buffer.byteLength(JSON.stringify(bounded));if(bytes+length>200000){view.truncated=true;continue;}bytes+=length;elements.push(bounded);
+    }
     return {display,windowId:view.windowId,title:view.title,app:view.app,elements,truncated:view.truncated,mode:screenText?'accessibility+ocr':'accessibility',...(view.diagnostic?{diagnostic:view.diagnostic}:{})};
   }
   throw Error('Structured desktop observations are not implemented on this OS yet; this model cannot use screenshots');
@@ -288,6 +294,10 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
           const smokeText=process.platform==='linux'?'Qwen smoke ok':'Qwen smoke ✓';
           await agent.act('fill',{ref:field[0],text:smokeText});console.log('smoke: fill sent');
           if(await fixture.webContents.executeJavaScript("document.querySelector('#field').value")!==smokeText)throw Error('Native fill did not reach the own fixture');
+          if(process.platform==='win32'){
+            await agent.find('Bridge smoke field');const readable=[...agent.refs].find(([_ref,id])=>agent.frame.elements.some(e=>e.id===id&&e.canFill));
+            if(!readable||(await agent.act('read',{ref:readable[0]})).text.indexOf(smokeText)<0)throw Error('Native accessible text read failed');
+          }
           await agent.find('Apply fixture');console.log('smoke: button found');
           const button=[...agent.refs].find(([_ref,id])=>agent.frame.elements.some(e=>e.id===id&&e.canInvoke));
           if(!button)throw Error('Accessible fixture action missing');
