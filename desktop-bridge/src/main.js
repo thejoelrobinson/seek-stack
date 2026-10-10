@@ -16,6 +16,7 @@ import {Companion} from './companion.js';
 import {linkOptions} from './net.js';
 import {createSecurePeer} from './secure-link.js';
 import {parseInvitation} from './pairing.js';
+import {UpdateChecker} from './updates.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const inputSmoke=process.argv.includes('--smoke-input');
@@ -107,6 +108,10 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   cursor=new BrowserWindow({width:40,height:40,transparent:true,frame:false,alwaysOnTop:true,skipTaskbar:true,resizable:false,focusable:false,show:false,...opts});
   cursor.setIgnoreMouseEvents(true);for(const w of [panel,pet,cursor,chat])protect(w);
   ipcMain.handle('status',()=>status());
+  const updates=new UpdateChecker({version:app.getVersion(),platform:process.platform,arch:process.arch,fetch:(url,options)=>net.fetch(url,options),onChange:s=>panel.webContents.send('updates',s)});
+  ipcMain.handle('updates-status',event=>{requirePanel(event);return updates.state;});
+  ipcMain.handle('updates-check',event=>{requirePanel(event);return updates.check(true);});
+  ipcMain.handle('updates-open',async event=>{requirePanel(event);if(updates.state.state!=='available')throw Error('Check for an update first');await shell.openExternal(updates.state.url);});
   ipcMain.handle('list-windows',async event=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing window targets');if(process.platform==='win32')windows=(await native.execute({kind:'windows'})).windows;control.emit();return status();});
   ipcMain.handle('select-window',(event,id)=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before changing window targets');if(id!==null&&!windows.some(w=>w.id===id))throw Error('Unknown window');selectedWindowId=id;control.emit();return status();});
   ipcMain.handle('refresh-capabilities',async event=>{requirePanel(event);if(control.state==='agent')throw Error('Take control before refreshing permissions');return refreshCapabilities();});
@@ -172,6 +177,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   shortcutReady=globalShortcut.register('CommandOrControl+Alt+Shift+S',()=>stop('Local takeover'));
   globalShortcut.register('CommandOrControl+Shift+Space',()=>showCompanion());
   if(!smoke)void link.load();
+  if(!smoke){void updates.check();setInterval(()=>void updates.check(),6*3600000).unref();}
   if(!shortcutReady)stop('Takeover shortcut unavailable');else control.emit();
   powerMonitor.on('suspend',()=>stop('Computer sleeping'));powerMonitor.on('lock-screen',()=>stop('Computer locked'));
   // macOS reports workArea-only changes for Dock, menu bar and full-screen Space switches; those

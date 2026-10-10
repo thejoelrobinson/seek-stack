@@ -92,6 +92,8 @@ jobs:
       - name: Verify final Mac DMG and ZIP signatures, architectures and launch
         if: runner.os == 'macOS'
         run: npm run verify:mac
+      - name: Record tested installer provenance
+        run: node scripts/release-metadata.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -102,33 +104,35 @@ jobs:
             desktop-bridge/dist/*.dmg
             desktop-bridge/dist/*.AppImage
             desktop-bridge/dist/*.deb
-            desktop-bridge/smoke-output/*.png
+            desktop-bridge/dist/release-*.json
           if-no-files-found: warn
           compression-level: 0
-  draft-release:
-    if: startsWith(github.ref, 'refs/tags/bridge-v')
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ runner.os }}-${{ runner.arch }}
+          path: desktop-bridge/smoke-output/*.png
+          if-no-files-found: ignore
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/bridge-v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/download-artifact@v4
         with:
           pattern: bridge-*
           path: release
           merge-multiple: true
-      - name: Prepare draft preview release
+      - name: Publish the version after exact-commit Work and desktop checks
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          # Artifacts keep their folders: installers in dist/, smoke screenshots (not released) in smoke-output/.
-          cd release/dist
-          sha256sum * > SHA256SUMS
-          printf '%s\n' 'Seek Desktop developer preview. Desktop control uses authenticated WebRTC with verified device keys. Connect using a one-use link in Seek Settings > Computers; identities verify automatically. Existing verified WebRTC pairings carry forward. Click the corner companion to chat, start a task in Seek’s browser, or grant a task control of this computer. Stop is immediate. Mac preview installers have verified ad-hoc bundle signatures and both Intel/Apple silicon slices; they are not Apple notarized. Windows/Linux installers are unsigned; no automatic update. Qwen uses text accessibility observations. macOS requires Accessibility permission; Linux requires AT-SPI, X11 at 100% scaling and an unlocked protected keychain. Windows selected-window fill/invoke support background operation. Wayland control and human screen streaming remain unfinished. See desktop-bridge/SECURITY.md for the trust boundary and validation limits.' > "$RUNNER_TEMP/notes.md"
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --prerelease --title "Seek Desktop $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
-          fi
-          test "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" = true
-          gh release upload "$GITHUB_REF_NAME" ./* --clobber
+        working-directory: desktop-bridge
+        run: node scripts/publish-release.mjs

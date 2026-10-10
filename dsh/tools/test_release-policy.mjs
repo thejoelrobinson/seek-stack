@@ -1,0 +1,23 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,readFile,writeFile,mkdir} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';
+import {verifiedRun,verifiedManifest,sourceOnMain,activeWork} from './release-policy.mjs';import {publishDownloads} from './live-release.mjs';import {releaseFiles} from '../../desktop-bridge/scripts/release-files.mjs';
+import {createHash} from 'node:crypto';
+const sha='a'.repeat(40),run={head_sha:sha,head_branch:'main',event:'push',status:'completed',conclusion:'success',path:'.github/workflows/work-regressions.yml'};
+const manifest=()=>({schema:1,version:'0.5.2',commit:sha,ciRun:1,workRun:2,files:releaseFiles.map(([suffix,os,kind,arch])=>({name:'seek-desktop-0.5.2-'+suffix,os,kind,arch,size:10000000,sha256:'b'.repeat(64),...os==='darwin'?{signing:'adhoc',notarized:false}:{}}))});
+test('only successful main push checks for the exact commit qualify',()=>{assert.ok(verifiedRun(run,{sha,workflow:'work-regressions.yml'}));for(const changed of [{head_sha:'b'.repeat(40)},{event:'pull_request'},{head_branch:'fix/mac'},{conclusion:'failure'},{status:'in_progress'},{path:'.github/workflows/other.yml'}])assert.equal(verifiedRun({...run,...changed},{sha,workflow:'work-regressions.yml'}),false);assert.equal(sourceOnMain({status:'diverged'}),false);assert.ok(sourceOnMain({status:'ahead'}));});
+test('unsafe, incomplete and mixed release manifests are rejected',()=>{assert.equal(verifiedManifest(manifest()).files.length,6);for(const m of [{...manifest(),ciRun:0},{...manifest(),commit:'abc'},{...manifest(),files:manifest().files.slice(1)}])assert.throws(()=>verifiedManifest(m));});
+test('running work and unresolved actions defer deployment; idle questions are preserved',()=>{assert.ok(activeWork(null));for(const t of [{status:'running'},{status:'queued'},{status:'waiting',approval:{}},{status:'waiting',handoff:{}},{status:'waiting',nativeRequest:{}}])assert.ok(activeWork({tasks:[t]}));assert.equal(activeWork({tasks:[{status:'waiting',question:{text:'Reply later'}},{status:'complete'}]}),false);});
+test('invalid installers leave the live manifest untouched and publication cannot downgrade',async()=>{const root=await mkdtemp(join(tmpdir(),'seek-release-test-')),target=join(root,'live'),source=join(root,'source');await mkdir(target);await mkdir(source);const previous=JSON.stringify({version:'0.5.1',commit:'c'.repeat(40),files:[]});await writeFile(join(target,'manifest.json'),previous);await assert.rejects(publishDownloads(source,target,manifest()));assert.equal(await readFile(join(target,'manifest.json'),'utf8'),previous);await writeFile(join(target,'manifest.json'),JSON.stringify({version:'0.5.3',files:[]}));await assert.rejects(publishDownloads(source,target,manifest()),/downgrade/);});
+test('verified artifacts publish together and corrupt follow-up releases preserve the current downloads',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'seek-release-publish-')),source=join(root,'source'),target=join(root,'live');await mkdir(source);await mkdir(target);
+ const bytes=Buffer.alloc(10000000,7),hash=createHash('sha256').update(bytes).digest('hex'),m=manifest();m.files.forEach(f=>f.sha256=hash);
+ const previous=JSON.stringify({version:'0.5.1',files:[]});await writeFile(join(target,'manifest.json'),previous);
+ for(const f of m.files)await writeFile(join(source,f.name),bytes);
+ assert.deepEqual(await publishDownloads(source,target,m),{state:'published',version:'0.5.2',files:6});
+ assert.equal(JSON.parse(await readFile(join(target,'manifest.json'),'utf8')).commit,sha);
+ assert.equal((await publishDownloads(source,target,m)).state,'current');
+ const next={...m,version:'0.5.3',commit:'d'.repeat(40),files:m.files.map(f=>({...f,name:f.name.replace('0.5.2','0.5.3')}))};
+ for(const f of next.files)await writeFile(join(source,f.name),bytes);await writeFile(join(source,next.files[5].name),Buffer.alloc(10000000,9));
+ await assert.rejects(publishDownloads(source,target,next),/integrity/);
+ assert.equal(JSON.parse(await readFile(join(target,'manifest.json'),'utf8')).version,'0.5.2');
+ assert.equal(createHash('sha256').update(await readFile(join(target,m.files[0].name))).digest('hex'),hash);
+});

@@ -2,6 +2,10 @@ import './buddy.js';
 window.bridge.onCompanion(d=>window.SeekBuddy.setLook(d.look));
 document.querySelector('#chat').onclick=()=>window.bridge.showCompanion();document.querySelector('#quit').onclick=()=>window.bridge.quit();
 const $=s=>document.querySelector(s);
+function renderUpdates(s){$('#update-status').textContent=s.state==='available'?`Version ${s.version} is available${s.preview?' (preview)':''}.`:s.state==='checking'?'Checking for updates…':s.state==='error'?s.error:`Version ${s.current}${s.state==='current'?' is up to date.':'.'}`;$('#update-check').disabled=s.state==='checking';$('#update-download').hidden=s.state!=='available';if(s.version)$('#update-download').textContent='Download '+s.version;}
+window.bridge.onUpdates(renderUpdates);window.bridge.updatesStatus().then(renderUpdates).catch(e=>renderUpdates({state:'error',error:e.message}));
+$('#update-check').onclick=()=>window.bridge.checkUpdates().then(renderUpdates).catch(e=>renderUpdates({state:'error',error:e.message}));
+$('#update-download').onclick=()=>window.bridge.openUpdate().catch(e=>renderUpdates({state:'error',error:e.message}));
 const el=(tag,props={},...kids)=>{const n=Object.assign(document.createElement(tag),props);n.append(...kids);return n;};
 let latest,linkState,invitationText='';
 const error=e=>{$('#activity').textContent=e.message;};

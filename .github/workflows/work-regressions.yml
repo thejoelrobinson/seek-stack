@@ -1,9 +1,9 @@
 name: Seek Work regressions
 on:
   push:
-    paths: ['dsh/plugins/browser-viewer/**', 'dsh/plugins/qwen-image/**', 'dsh/tools/*qwen_image*', 'dsh/tools/qwen-image-service.py', 'dsh/proxy/**', 'scheduled-task/**', 'start-seek.ps1', '.github/workflows/work-regressions.yml']
+    paths: ['dsh/plugins/browser-viewer/**', 'dsh/plugins/qwen-image/**', 'desktop-bridge/**', 'dsh/tools/*qwen_image*', 'dsh/tools/*release*', 'dsh/tools/qwen-image-service.py', 'dsh/proxy/**', 'scheduled-task/**', 'start-seek.ps1', '.github/workflows/**']
   pull_request:
-    paths: ['dsh/plugins/browser-viewer/**', 'dsh/plugins/qwen-image/**', 'dsh/tools/*qwen_image*', 'dsh/tools/qwen-image-service.py', 'dsh/proxy/**', 'scheduled-task/**', 'start-seek.ps1', '.github/workflows/work-regressions.yml']
+    paths: ['dsh/plugins/browser-viewer/**', 'dsh/plugins/qwen-image/**', 'desktop-bridge/**', 'dsh/tools/*qwen_image*', 'dsh/tools/*release*', 'dsh/tools/qwen-image-service.py', 'dsh/proxy/**', 'scheduled-task/**', 'start-seek.ps1', '.github/workflows/**']
 jobs:
   work:
     runs-on: windows-latest
@@ -19,6 +19,9 @@ jobs:
           cache-dependency-path: dsh/plugins/browser-viewer/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: Live release publisher contracts
+        run: node --test dsh/tools/test_release*.mjs
+        working-directory: .
       - run: npm run test:browser
       - uses: actions/setup-python@v5
         with:

@@ -1,5 +1,6 @@
 const {contextBridge,ipcRenderer}=require('electron');
 contextBridge.exposeInMainWorld('bridge',{
+ updatesStatus:()=>ipcRenderer.invoke('updates-status'),checkUpdates:()=>ipcRenderer.invoke('updates-check'),openUpdate:()=>ipcRenderer.invoke('updates-open'),onUpdates:fn=>ipcRenderer.on('updates',(_e,s)=>fn(s)),
  showCompanion:()=>ipcRenderer.invoke('companion-show'),hideCompanion:()=>ipcRenderer.invoke('companion-hide'),
  companionData:()=>ipcRenderer.invoke('companion-data'),submitTask:input=>ipcRenderer.invoke('companion-submit',input),
  selectTask:id=>ipcRenderer.invoke('companion-select',id),
