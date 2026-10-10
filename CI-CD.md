@@ -18,7 +18,7 @@ App deployment uses the existing backup, idle checks, rollback, and health check
 
 Downloads change only after both recorded CI runs finish successfully, all platform jobs pass, the release tag matches the tested source, and every installer passes SHA-256 verification. All files are staged before an atomic manifest change. Previous installers and a manifest backup remain available for rollback.
 
-The installed publisher source is copied into `.dsh/release-publisher/source`; changing it requires re-running the registration script. Logs are in `.dsh/release-publisher/publisher.log`; the latest outcome is `.dsh/release-cache/status.json`. Scheduled task: `SeekReleasePublisher`. Disable it with `Disable-ScheduledTask -TaskName SeekReleasePublisher`. On accounts that cannot register tasks, registration falls back to an HKCU Run entry named `SeekReleasePublisher`; remove that entry and stop its `run.ps1 -Loop` process to disable the fallback.
+The installed publisher source is copied into `.dsh/release-publisher/source`; changing it requires re-running the registration script. Logs are in `.dsh/release-publisher/publisher.log`, with per-commit deployment output in `.dsh/release-cache/deploy-<commit>.log`; the latest outcome is `.dsh/release-cache/status.json`. Scheduled task: `SeekReleasePublisher`. Disable it with `Disable-ScheduledTask -TaskName SeekReleasePublisher`. On accounts that cannot register tasks, registration falls back to an HKCU Run entry named `SeekReleasePublisher`; remove that entry and stop its `run.ps1 -Loop` process to disable the fallback.
 
 ## Companion updates
 

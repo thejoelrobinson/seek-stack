@@ -2,6 +2,7 @@ import {readFile,writeFile,mkdir,copyFile,rename,stat,open,unlink} from 'node:fs
 import {join,resolve,dirname,relative,isAbsolute} from 'node:path';import {execFile} from 'node:child_process';import {promisify} from 'node:util';import {fileURLToPath} from 'node:url';
 import {RELEASE_REPO,verifiedRun,verifiedManifest,sourceOnMain,activeWork} from './release-policy.mjs';
 import {digest} from '../../desktop-bridge/scripts/release-files.mjs';
+import {runDeployment} from './release-process.mjs';
 const exec=promisify(execFile);
 export async function publishDownloads(source,target,manifest){
  manifest=verifiedManifest(manifest);await mkdir(target,{recursive:true});
@@ -40,7 +41,7 @@ export async function poll(config){
    if(dependencies(candidate)!==dependencies(installed))report.app='dependency_change_needs_review';
    else {
     const deploy=join(snapshot,'dsh/experiments/best-in-class-implementation-20261001/deploy.ps1');
-    await command(config.powershell||'powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',deploy,'-RepoRoot',snapshot,'-SeekHome',home,'-ViewerOnly','-IncludeProxy','-AllowWaitingTasks','-Apply','-RegisterSupervisor'],{timeout:360000});
+    await runDeployment(config.powershell||'powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',deploy,'-RepoRoot',snapshot,'-SeekHome',home,'-ViewerOnly','-IncludeProxy','-AllowWaitingTasks','-Apply','-RegisterSupervisor'],join(cache,'deploy-'+sha+'.log'));
     state.appCommit=sha;report.app='deployed';
    }
   }

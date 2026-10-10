@@ -12,7 +12,7 @@ $node=(Get-Command node.exe -ErrorAction Stop).Source
 $gh=(Get-Command gh.exe -ErrorAction Stop).Source
 $powershell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $root=Join-Path $SeekHome 'release-publisher'
-$files=@('dsh/tools/live-release.mjs','dsh/tools/release-policy.mjs','desktop-bridge/scripts/release-files.mjs')
+$files=@('dsh/tools/live-release.mjs','dsh/tools/release-policy.mjs','dsh/tools/release-process.mjs','desktop-bridge/scripts/release-files.mjs')
 foreach($file in $files){if(!(Test-Path -LiteralPath (Join-Path $RepoRoot $file) -PathType Leaf)){throw "Missing reviewed publisher source: $file"}}
 if(!$Apply){@{action='install-release-publisher';source=$RepoRoot;destination=$root;intervalMinutes=5;deployApp=$true;runAs=$env:USERNAME}|ConvertTo-Json;return}
 New-Item -ItemType Directory -Path $root -Force|Out-Null
