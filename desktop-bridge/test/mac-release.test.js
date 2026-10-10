@@ -23,3 +23,7 @@ test('personal signing is explicit, local only, and cannot masquerade as a Devel
  assert.throws(()=>assertMacReleaseCredentials({SEEK_MAC_SIGNING_IDENTITY:'Seek Desktop Personal',SEEK_MAC_SIGNED_RELEASE:'1'},'darwin'),/Choose personal/);
  assert.throws(()=>assertMacReleaseCredentials({SEEK_MAC_SIGNING_IDENTITY:'Seek Desktop Personal',GITHUB_REF:'refs/tags/bridge-v0.5.2'},'darwin'),/Personal certificates/);
 });
+test('PR previews permit ad-hoc bundle integrity signing but reject certificate credentials',()=>{
+ const preview={GITHUB_EVENT_NAME:'pull_request',CSC_LINK:'',SEEK_MAC_SIGNED_RELEASE:'0'};assertMacReleaseCredentials(preview,'darwin');assert.equal(preview.CSC_FOR_PULL_REQUEST,'true');assert.equal(preview.CSC_IDENTITY_AUTO_DISCOVERY,'false');
+ for(const secret of ['CSC_LINK','CSC_NAME','CSC_KEYCHAIN','SEEK_MAC_SIGNING_IDENTITY'])assert.throws(()=>assertMacReleaseCredentials({GITHUB_EVENT_NAME:'pull_request',[secret]:'fixture'},'darwin'),/withheld/);
+});
