@@ -11,6 +11,7 @@ param(
  [string]$RollbackBackupPath,
  [string]$DesktopRuntimeRoot,
  [switch]$ViewerOnly,
+ [switch]$IncludeProxy,
  [switch]$Apply,
  [switch]$RegisterSupervisor,
  # A task that is only waiting for the user's reply keeps its question across a restart. With this
@@ -94,7 +95,7 @@ function Assert-Idle {
  $images=Json 'http://127.0.0.1:3080/qwen-image/api/status';$runner=@{};if(!$ViewerOnly){$runner=Json 'http://127.0.0.1:18810/health'}
  try{$progress=Json 'http://127.0.0.1:3080/qwen-image/api/progress'}catch{if($_.Exception.Response.StatusCode.value__ -ne 404){throw};$progress=$images}
  $held=@('running','queued');if(-not $AllowWaitingTasks){$held+='waiting'}
- $blocking=@($state.tasks|Where-Object {$_.status -in $held -or (Field $_ 'handoff') -or (Field $_ 'approval') -or (Field $_ 'nativeRequest')})
+ $blocking=@($state.tasks|Where-Object {$_.status -in $held -or (Field $_ 'handoff') -or (Field $_ 'approval') -or (Field $_ 'nativeRequest') -or (Field $_ 'desktopAsk')})
  $queue=Field $progress 'queue';$activeQueue=@($queue|Where-Object {$null -ne $_ -and !(Field $_ 'deferred')})
  $runnerChildren=@();if(!$ViewerOnly){$ownedRunner=Listener 18810 'image';$runnerChildren=@(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($ownedRunner.ProcessId)"|Where-Object {!(Owned-Console $_ $ownedRunner)})}
  if($blocking.Count -or $helpers.foregroundBusy -or $helpers.active -or $helpers.pending -or $images.active -or $images.recoveryRequired -or (Field $progress 'active') -or (Field $runner 'busy') -or (Field $runner 'loading') -or (Field $runner 'lease') -or $activeQueue.Count -or $runnerChildren.Count){throw 'Seek has active, queued, waiting, native, image or model work; deployment deferred.'}
@@ -138,6 +139,7 @@ function Source-Files {
   foreach($name in @('package.json','README.md')){if(Test-Path -LiteralPath (Join-Path $source $name)){$file=Join-Path $source $name;$list+=@{source=$file;target=(Under $SeekHome (Join-Path $target $name));hash=(Get-FileHash -LiteralPath $file).Hash;remove=$false}}}
  }
  if(!$ViewerOnly){foreach($pair in @(@('dsh\tools\qwen-image-service.py','tools\qwen-image-service.py'),@('dsh\proxy\server.js','proxy\server.js'),@('dsh\proxy\work-session-store.cjs','proxy\work-session-store.cjs'),@('scheduled-task\supervise-seek-v2.ps1','supervise-seek.ps1'),@('scheduled-task\register-seeksupervisor.ps1','register-seeksupervisor.ps1'))){$file=Join-Path $RepoRoot $pair[0];$list+=@{source=$file;target=(Under $SeekHome (Join-Path $SeekHome $pair[1]));hash=(Get-FileHash -LiteralPath $file).Hash;remove=$false}}}
+ elseif($IncludeProxy){foreach($pair in @(@('dsh\proxy\server.js','proxy\server.js'),@('dsh\proxy\work-session-store.cjs','proxy\work-session-store.cjs'))){$file=Join-Path $RepoRoot $pair[0];$list+=@{source=$file;target=(Under $SeekHome (Join-Path $SeekHome $pair[1]));hash=(Get-FileHash -LiteralPath $file).Hash;remove=$false}}}
  if($DesktopRuntimeRoot){
   $runtime=Under $RepoRoot ([IO.Path]::GetFullPath($DesktopRuntimeRoot));$pluginSource=Join-Path $RepoRoot 'dsh\plugins\browser-viewer';$pluginTarget=Join-Path $SeekHome 'profiles\web\node_modules\@deepseek-ai\dsh-browser-viewer'
   foreach($name in @('package.json','package-lock.json')){if((Get-FileHash -LiteralPath (Join-Path $runtime $name)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $pluginSource $name)).Hash){throw 'Staged desktop runtime differs from the tested plugin lockfile.'}}
@@ -299,7 +301,7 @@ try{
   $script:manifest=@{schema=1;release=$releaseId;phase='prepared';at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();expected=$expected;files=@();configs=@();startupPatched=$false;router=@{pid=$router.ProcessId;created=$router.CreationDate.ToString('o');preset=$RouterPreset;presetHash=(Get-FileHash -LiteralPath $RouterPreset).Hash;loaded=$gate.loaded};python=$python;preflight=$summary}
   Backup-Code $files;Preserve-Configs;Save-Manifest
   Copy-Item -LiteralPath $PSCommandPath,$helper -Destination $script:backup
-  $rollback='& '+"'"+(Join-Path $script:backup 'deploy.ps1').Replace("'","''")+"' -RepoRoot '"+$RepoRoot.Replace("'","''")+"' -SeekHome '"+$SeekHome.Replace("'","''")+"' -Apply -RollbackBackupPath '"+$script:backup.Replace("'","''")+"'"+$(if($ViewerOnly){' -ViewerOnly'}else{''})+"`n"
+  $rollback='& '+"'"+(Join-Path $script:backup 'deploy.ps1').Replace("'","''")+"' -RepoRoot '"+$RepoRoot.Replace("'","''")+"' -SeekHome '"+$SeekHome.Replace("'","''")+"' -Apply -RollbackBackupPath '"+$script:backup.Replace("'","''")+"'"+$(if($ViewerOnly){' -ViewerOnly'}else{''})+$(if($IncludeProxy){' -IncludeProxy'}else{''})+"`n"
   [IO.File]::WriteAllText((Join-Path $script:backup 'rollback.ps1'),$rollback,[Text.UTF8Encoding]::new($false))
   Patch-Startup;Save-Manifest
   Assert-Idle|Out-Null;foreach($supervisor in Supervisor-Processes){Owner $supervisor;Stop-Owned $supervisor};Stop-Owned $proxy;$script:proxyStopped=$true

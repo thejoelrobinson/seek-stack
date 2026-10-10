@@ -34,7 +34,7 @@ jobs:
         shell: pwsh
         working-directory: .
         run: |
-          $files = @('start-seek.ps1') + @(Get-ChildItem scheduled-task -File -Filter '*.ps1' | ForEach-Object FullName)
+          $files = @('start-seek.ps1', 'dsh/experiments/best-in-class-implementation-20261001/deploy.ps1') + @(Get-ChildItem scheduled-task -File -Filter '*.ps1' | ForEach-Object FullName)
           foreach ($file in $files) {
             $tokens = $null
             $errors = $null

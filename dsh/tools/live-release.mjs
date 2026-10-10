@@ -40,7 +40,7 @@ export async function poll(config){
    if(dependencies(candidate)!==dependencies(installed))report.app='dependency_change_needs_review';
    else {
     const deploy=join(snapshot,'dsh/experiments/best-in-class-implementation-20261001/deploy.ps1');
-    await command(config.powershell||'powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',deploy,'-RepoRoot',snapshot,'-SeekHome',home,'-ViewerOnly','-AllowWaitingTasks','-Apply','-RegisterSupervisor'],{timeout:360000});
+    await command(config.powershell||'powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',deploy,'-RepoRoot',snapshot,'-SeekHome',home,'-ViewerOnly','-IncludeProxy','-AllowWaitingTasks','-Apply','-RegisterSupervisor'],{timeout:360000});
     state.appCommit=sha;report.app='deployed';
    }
   }

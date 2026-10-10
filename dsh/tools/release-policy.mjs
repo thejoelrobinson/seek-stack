@@ -8,4 +8,4 @@ export function verifiedManifest(manifest){
  return {...manifest,files:validateReleaseFiles([manifest],manifest)};
 }
 export function sourceOnMain(compare){return ['ahead','identical'].includes(compare?.status);}
-export function activeWork(state){return !Array.isArray(state?.tasks)||state.tasks.some(t=>!t.archived&&(['running','queued','attention'].includes(t.status)||t.approval||t.handoff||t.nativeRequest));}
+export function activeWork(state){return !Array.isArray(state?.tasks)||state.tasks.some(t=>!t.archived&&(['running','queued','attention'].includes(t.status)||t.approval||t.handoff||t.nativeRequest||t.desktopAsk));}
