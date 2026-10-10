@@ -174,7 +174,9 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   if(!smoke)void link.load();
   if(!shortcutReady)stop('Takeover shortcut unavailable');else control.emit();
   powerMonitor.on('suspend',()=>stop('Computer sleeping'));powerMonitor.on('lock-screen',()=>stop('Computer locked'));
-  screen.on('display-removed',()=>stop('Display configuration changed'));screen.on('display-metrics-changed',()=>stop('Display configuration changed'));
+  // macOS reports workArea-only changes for Dock, menu bar and full-screen Space switches; those
+  // move no coordinates, so only geometry changes on the selected display revoke control.
+  screen.on('display-removed',()=>stop('Display configuration changed'));screen.on('display-metrics-changed',(_e,display,changed)=>{if(String(display.id)===selectedId&&changed.some(m=>m!=='workArea'))stop('Display configuration changed');});
   panel.on('close',e=>{if(!quitting){e.preventDefault();panel.hide();}});
   chat.on('close',e=>{if(!quitting){e.preventDefault();chat.hide();}});
   setInterval(()=>{if(link.online)void companion.refresh().catch(()=>{});},2000).unref();

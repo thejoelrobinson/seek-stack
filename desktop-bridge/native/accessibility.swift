@@ -1,7 +1,17 @@
 import Foundation
 import ApplicationServices
 
-enum BridgeFailure: Error { case permission, unavailable, stale }
+enum BridgeFailure: Error, CustomStringConvertible {
+    case permission, unavailable, stale, focus(String)
+    var description: String {
+        switch self {
+        case .permission: return "macOS has not granted Accessibility to Seek Desktop"
+        case .unavailable: return "That control no longer supports this action"
+        case .stale: return "The window changed; observe again"
+        case .focus(let detail): return detail
+        }
+    }
+}
 var observedWindow: AXUIElement?
 var observedWindowID = ""
 var targets: [String: AXUIElement] = [:]
@@ -21,11 +31,31 @@ func textAttribute(_ element: AXUIElement, _ name: String, limit: Int = 512) -> 
     guard let value = attribute(element, name) as? String else { return "" }
     return String(value.prefix(limit))
 }
+// The system-wide AXFocusedApplication query can fail (kAXErrorCannotComplete) on recent macOS,
+// so fall back to the owner of the frontmost normal-level window from the window server.
+func focusedApplication() throws -> AXUIElement {
+    var app: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(systemElement, "AXFocusedApplication" as CFString, &app)
+    if error == .success, let app, CFGetTypeID(app) == AXUIElementGetTypeID() { return (app as! AXUIElement) }
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    guard let pid = windows.first(where: { ($0[kCGWindowLayer as String] as? Int) == 0 })?[kCGWindowOwnerPID as String] as? pid_t else {
+        throw BridgeFailure.focus("No focused application (AXError \(error.rawValue)); no window is open")
+    }
+    return AXUIElementCreateApplication(pid)
+}
 func currentWindow() throws -> AXUIElement {
     guard AXIsProcessTrusted() else { throw BridgeFailure.permission }
-    guard let app = elementAttribute(systemElement, "AXFocusedApplication"),
-          let window = elementAttribute(app, "AXFocusedWindow") else { throw BridgeFailure.unavailable }
-    return window
+    let app = try focusedApplication()
+    var error = AXError.success
+    for name in ["AXFocusedWindow", "AXMainWindow"] {
+        var window: CFTypeRef?
+        error = AXUIElementCopyAttributeValue(app, name as CFString, &window)
+        if error == .success, let window, CFGetTypeID(window) == AXUIElementGetTypeID() { return (window as! AXUIElement) }
+    }
+    throw BridgeFailure.focus("The front app has no window Seek can read (AXError \(error.rawValue)). Open or click a window and try again.")
+}
+func focusedElement() -> AXUIElement? {
+    return elementAttribute(systemElement, "AXFocusedUIElement") ?? (try? focusedApplication()).flatMap { elementAttribute($0, "AXFocusedUIElement") }
 }
 func rectOf(_ element: AXUIElement) -> CGRect? {
     guard let position = attribute(element, "AXPosition"), let size = attribute(element, "AXSize"),
@@ -55,7 +85,7 @@ func inspectAccessibility() throws -> [String: Any] {
     let window = try currentWindow()
     if observedWindow == nil || !CFEqual(observedWindow!, window) { observedWindowID = UUID().uuidString }
     targets.removeAll(); identities.removeAll(); observedWindow = window
-    let focused = elementAttribute(systemElement, "AXFocusedUIElement")
+    let focused = focusedElement()
     let start = Date(); var nodes: [[String: Any]] = []; var truncated = false
     var visited: [AXUIElement] = []
     func walk(_ element: AXUIElement, _ depth: Int) {
@@ -100,7 +130,7 @@ func validateAccessibility(_ command: [String: Any]) throws {
           let id = command["targetId"] as? String, let target = targets[id], identities[id] == identityOf(target),
           textAttribute(target, "AXSubrole") != "AXSecureTextField", (attribute(target, "AXEnabled") as? Bool) != false else { throw BridgeFailure.stale }
     if let focusID = command["focusId"] as? String {
-        guard focusID == id, let focused = elementAttribute(systemElement, "AXFocusedUIElement"), CFEqual(focused, target) else { throw BridgeFailure.stale }
+        guard focusID == id, let focused = focusedElement(), CFEqual(focused, target) else { throw BridgeFailure.stale }
     }
     if let x = command["x"] as? Double, let y = command["y"] as? Double {
         guard let rect = rectOf(target), abs(rect.midX - x) <= 2, abs(rect.midY - y) <= 2 else { throw BridgeFailure.stale }
