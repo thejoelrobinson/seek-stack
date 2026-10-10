@@ -11,7 +11,7 @@ export function shortcut(command){
 function text(value,label,max=1024){if(typeof value!=='string'||!value.trim()||value.length>max||/[\u0000-\u001f]/.test(value))throw Error('Invalid '+label);return value;}
 export function desktopPath(value){
  text(value,'folder path');const home=homedir(),aliases={home,downloads:join(home,'Downloads'),desktop:join(home,'Desktop'),documents:join(home,'Documents')};
- if(aliases[value.toLowerCase()])return aliases[value.toLowerCase()];
+ if(Object.hasOwn(aliases,value.toLowerCase()))return aliases[value.toLowerCase()];
  if(value==='~')return home;if(/^~[\\/]/.test(value))return resolve(home,value.slice(2));
  if(!isAbsolute(value))throw Error('Use an absolute path or Downloads, Desktop, Documents or Home');return resolve(value);
 }

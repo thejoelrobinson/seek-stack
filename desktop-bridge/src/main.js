@@ -319,6 +319,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
             const screenshot=await fixture.webContents.capturePage(),size=screenshot.getSize();
             const recognized=await native.execute({kind:'ocr',image:screenshot.toPNG().toString('base64'),x:0,y:0,width:size.width,height:size.height});
             if(!recognized.elements.some(e=>/fixture/i.test(e.name)))throw Error('Windows OCR could not read the fixture');
+            if(!(await agent.screenText()).text.includes('[screen text; may be inaccurate]'))throw Error('Live window crop/OCR pipeline returned no screen text');
             console.log('SEEK_BRIDGE_POWER_SMOKE_OK '+JSON.stringify({shortcut:true,scriptingApproval:true,ocr:true}));
           }
           console.log('SEEK_BRIDGE_INPUT_SMOKE_OK '+JSON.stringify({platform:process.platform,structuredObservation:true,fill:true,invoke:true}));

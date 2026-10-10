@@ -18,7 +18,12 @@ module.exports = {
   mac: {
     target: [{target: 'dmg', arch: ['universal']}, {target: 'zip', arch: ['universal']}],
     category: 'public.app-category.productivity',
-    extendInfo: {NSAppleEventsUsageDescription: 'Seek controls apps through AppleScript only after you approve scripting for the current task.'},
+    extendInfo: {
+      NSAppleEventsUsageDescription: 'Seek controls apps through AppleScript only after you approve scripting for the current task.',
+      NSDownloadsFolderUsageDescription: 'Seek reads Downloads to carry out desktop tasks you request.',
+      NSDocumentsFolderUsageDescription: 'Seek reads Documents to carry out desktop tasks you request.',
+      NSDesktopFolderUsageDescription: 'Seek reads Desktop files to carry out desktop tasks you request.'
+    },
     entitlements: 'native/entitlements.plist',
     // Re-sign modified Electron bundles. Ad-hoc signatures are for CI/local previews only.
     identity: personalMacIdentity || (signedMacRelease ? undefined : '-'),
