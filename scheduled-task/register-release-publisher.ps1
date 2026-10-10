@@ -23,7 +23,14 @@ foreach($identity in @($sid,'S-1-5-18','S-1-5-32-544')){
  $rule=New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier($identity)),[Security.AccessControl.FileSystemRights]::FullControl,([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit),[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
  $acl.AddAccessRule($rule)
 }
-Set-Acl -LiteralPath $root -AclObject $acl
+$currentAcl=Get-Acl -LiteralPath $root
+$allowed=@($sid,'S-1-5-18','S-1-5-32-544')
+$secure=$currentAcl.AreAccessRulesProtected -and $currentAcl.Access.Count -eq 3
+foreach($entry in $currentAcl.Access){
+ $identity=$entry.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+ if($identity -notin $allowed -or $entry.AccessControlType -ne 'Allow' -or $entry.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl){$secure=$false}
+}
+if(!$secure){Set-Acl -LiteralPath $root -AclObject $acl}
 foreach($file in $files){
  $target=Join-Path (Join-Path $root 'source') $file
  New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force|Out-Null

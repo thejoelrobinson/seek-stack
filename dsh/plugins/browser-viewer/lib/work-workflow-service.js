@@ -3,6 +3,7 @@ import {validateRecipe,bind} from './work-workflows.js';
 import {WorkflowStore} from './work-workflow-store.js';
 import {WorkflowRunner} from './work-workflow-runner.js';
 import {availability,groceryPlan} from './work-routines.js';
+import {parseWhen} from './work-calendar-tools.js';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {verifyOutcome} from './work-outcomes.js';
@@ -82,7 +83,7 @@ export function workflowText({workflow,state,result,error}){
   if(!result)return `Workflow ${state}: ${error?.message||'No verified result.'}`;
   if(workflow==='calendar_availability'){
     const date=new Intl.DateTimeFormat('en-US',{timeZone:result.zone,weekday:'short',month:'short',day:'numeric',year:'numeric'}),time=new Intl.DateTimeFormat('en-US',{timeZone:result.zone,hour:'numeric',minute:'2-digit'});
-    const window=w=>{const start=new Date(w.start),end=new Date(w.end),sameDay=date.format(start)===date.format(end);return `${date.format(start)}, ${time.format(start)} – ${sameDay?'':date.format(end)+', '}${time.format(end)} (${w.minutes} minutes free)`;};
+    const window=w=>{const start=new Date(parseWhen(w.start,result.zone).ms),end=new Date(parseWhen(w.end,result.zone).ms),sameDay=date.format(start)===date.format(end);return `${date.format(start)}, ${time.format(start)} – ${sameDay?'':date.format(end)+', '}${time.format(end)} (${w.minutes} minutes free)`;};
     return `Calendar availability (${result.zone})\n\n${result.events.length} events · ${result.conflictCount} conflicts\n\n`+(result.free.length?result.free.map(w=>'- '+window(w)).join('\n'):'No free windows of the requested duration.');
   }
   if(workflow==='grocery_cart_plan')return `Grocery cart plan\n\n`+(result.lines.map(l=>`- ${l.name}: add ${l.addQuantity}; target ${l.targetQuantity}`).join('\n')||'No additions needed.')+`\n\nAdditions: $${(result.subtotalCents/100).toFixed(2)}. Cart subtotal: ${result.cartSubtotalCents===null?'unknown':'$'+(result.cartSubtotalCents/100).toFixed(2)}. Taxes and fees excluded.\n\n`+(result.exceptions.length?result.exceptions.map(e=>`- ${e.productId?e.productId+': ':''}${e.reason}`).join('\n'):'Plan verified. No retailer cart has been changed.');

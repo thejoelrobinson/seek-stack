@@ -11,3 +11,7 @@ test('checks coalesce, cache without downloads, and retry errors explicitly',asy
  const [a,b]=await Promise.all([c.check(),c.check()]);assert.equal(a.version,b.version);assert.equal(calls,1);await c.check();assert.equal(calls,1);
  failed=true;assert.equal((await c.check(true)).state,'error');failed=false;assert.equal((await c.check(true)).state,'available');
 });
+test('a synchronous network failure clears the flight and a later check can succeed',async()=>{
+ let broken=true;const c=new UpdateChecker({version:'0.5.1',platform:'darwin',arch:'arm64',fetch:()=>{if(broken)throw Error('Proxy unavailable');return Promise.resolve({ok:true,text:async()=>JSON.stringify([release()])});}});
+ assert.equal((await c.check()).state,'error');assert.equal(c.flight,null);broken=false;assert.equal((await c.check(true)).state,'available');
+});
