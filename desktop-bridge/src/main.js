@@ -1,8 +1,8 @@
-import {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,systemPreferences,powerMonitor,session as electronSession,safeStorage,Notification,net,shell} from 'electron';
+import {app,BrowserWindow,ipcMain,globalShortcut,desktopCapturer,screen,systemPreferences,powerMonitor,session as electronSession,safeStorage,Notification,net,shell,nativeImage} from 'electron';
 import WebSocket from 'ws';
 import {hostname} from 'node:os';
 import {randomBytes} from 'node:crypto';
-import {writeFile,mkdir,rm,access} from 'node:fs/promises';
+import {writeFile,mkdir,rm,access,stat} from 'node:fs/promises';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {DesktopSession} from './session.js';
@@ -17,6 +17,8 @@ import {linkOptions} from './net.js';
 import {createSecurePeer} from './secure-link.js';
 import {parseInvitation} from './pairing.js';
 import {UpdateChecker} from './updates.js';
+import {listFolder} from './operations.js';
+import {DesktopScripts} from './scripting.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const inputSmoke=process.argv.includes('--smoke-input');
@@ -31,6 +33,7 @@ let panel,pet,cursor,server,selectedId,selectedWindowId=null,windows=[],credenti
 const token=randomBytes(32).toString('hex');
 const helperPath=app.isPackaged?join(process.resourcesPath,'native','seek-input'):join(root,'..','native','seek-input');
 const native=new NativeInput({helperPath});
+const scripts=new DesktopScripts();
 function displays(){return screen.getAllDisplays().map(d=>({id:String(d.id),label:d.label||`Display ${d.id}`,...d.bounds,scaleFactor:d.scaleFactor}));}
 function selected(){const d=displays().find(d=>d.id===selectedId);if(!d)throw Error('Selected display disconnected');return d;}
 const control=new DesktopSession({onState:s=>{
@@ -42,19 +45,51 @@ const control=new DesktopSession({onState:s=>{
     else cursor.hide();
   }
 }});
-function stop(reason='You have control'){native.stop();control.revoke(reason);}
+function stop(reason='You have control'){scripts.stop();native.stop();control.revoke(reason);}
 function status(){return {...control.snapshot(),platform:process.platform,capabilities,display:selected(),displays:displays(),selectedId,selectedWindowId,windows,shortcutReady,endpoint:server?.address()?`http://127.0.0.1:${server.address().port}`:null};}
-async function capture(){
+async function capture({screenText=false}={}){
   const display=selected();
   if(['win32','darwin','linux'].includes(process.platform)){
     const {view}=await native.execute({kind:'inspect',...(process.platform==='win32'?{selectedWindowId}:{})});
+    if(screenText){
+      if(!['win32','darwin'].includes(process.platform))throw Error('Screen text recognition is available on Mac and Windows');
+      if(process.platform==='win32'&&selectedWindowId)throw Error('Switch to the active window before reading screen text');
+      const snapshot=await captureScreen(),image=nativeImage.createFromDataURL(snapshot.image),b=view.bounds;
+      if(!b)throw Error('The active window has no capture bounds');
+      const origin=process.platform==='win32'?screen.screenToDipPoint({x:Math.round(b.X),y:Math.round(b.Y)}):{x:b.X,y:b.Y};
+      const bottom=process.platform==='win32'?screen.screenToDipPoint({x:Math.round(b.X+b.Width),y:Math.round(b.Y+b.Height)}):{x:b.X+b.Width,y:b.Y+b.Height};
+      const left=Math.max(display.x,origin.x),top=Math.max(display.y,origin.y),right=Math.min(display.x+display.width,bottom.x),end=Math.min(display.y+display.height,bottom.y);
+      if(right<=left||end<=top)throw Error('The active window is outside the selected display');
+      const sx=snapshot.imageWidth/display.width,sy=snapshot.imageHeight/display.height;
+      const crop={x:Math.max(0,Math.floor((left-display.x)*sx)),y:Math.max(0,Math.floor((top-display.y)*sy)),width:Math.max(1,Math.floor((right-left)*sx)),height:Math.max(1,Math.floor((end-top)*sy))};
+      const physical=process.platform==='win32'?screen.dipToScreenPoint({x:Math.round(left),y:Math.round(top)}):{x:left,y:top};
+      const physicalEnd=process.platform==='win32'?screen.dipToScreenPoint({x:Math.round(right),y:Math.round(end)}):{x:right,y:end};
+      const recognized=await native.execute({kind:'ocr',image:image.crop(crop).toPNG().toString('base64'),x:physical.x,y:physical.y,width:physicalEnd.x-physical.x,height:physicalEnd.y-physical.y});
+      const protectedFields=view.elements.filter(e=>e.password);
+      view.elements.push(...recognized.elements.filter(e=>!protectedFields.some(p=>e.x<p.x+p.width&&e.x+e.width>p.x&&e.y<p.y+p.height&&e.y+e.height>p.y)));
+    }
     const elements=view.elements.map(e=>{
       if(process.platform!=='win32')return {...e,x:e.x-display.x,y:e.y-display.y};
       const top=screen.screenToDipPoint({x:Math.round(e.x),y:Math.round(e.y)}),bottom=screen.screenToDipPoint({x:Math.round(e.x+e.width),y:Math.round(e.y+e.height)});return {...e,x:top.x-display.x,y:top.y-display.y,width:bottom.x-top.x,height:bottom.y-top.y};
     });
-    return {display,windowId:view.windowId,title:view.title,elements,truncated:view.truncated,mode:'accessibility',...(view.diagnostic?{diagnostic:view.diagnostic}:{})};
+    return {display,windowId:view.windowId,title:view.title,app:view.app,elements,truncated:view.truncated,mode:screenText?'accessibility+ocr':'accessibility',...(view.diagnostic?{diagnostic:view.diagnostic}:{})};
   }
   throw Error('Structured desktop observations are not implemented on this OS yet; this model cannot use screenshots');
+}
+async function operation(command){
+  if(command.kind==='list')return listFolder(command);
+  if(command.kind==='open-folder'){
+    if(!(await stat(command.path)).isDirectory())throw Error('Choose a folder');
+    const error=await shell.openPath(command.path);if(error)throw Error(error);selectedWindowId=null;return {};
+  }
+  if(!['win32','darwin'].includes(process.platform))throw Error('Direct app navigation is available on Mac and Windows');
+  if(command.kind==='shortcut'){
+    const {view}=await native.execute({kind:'inspect',...(process.platform==='win32'?{selectedWindowId}:{})});
+    await native.execute({...command,windowId:view.windowId});return {};
+  }
+  const response=await native.execute(command);
+  if(['open-app','switch'].includes(command.kind))selectedWindowId=null;
+  return response.result??{windows:response.windows};
 }
 async function captureScreen(){
   const display=selected();
@@ -126,6 +161,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
     return granted;
   };
   ipcMain.handle('grant',(event,task)=>{requirePanel(event);return grantTask(task);});
+  ipcMain.handle('allow-scripts',(event,auth)=>{requirePanel(event);control.allowScripts(auth);return status();});
   ipcMain.handle('quit',event=>{requirePanel(event);app.quit();});
   // Pairing with Seek (Settings › Computers) and requests that arrive over the link.
   const protectedStorage=safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');
@@ -135,7 +171,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
     // Pairing uses Chromium's network stack; the link uses the same proxy and the system's certificates.
     fetchImpl:(url,options)=>net.fetch(url,options),prepare:url=>linkOptions(url,{resolveProxy:u=>electronSession.defaultSession.resolveProxy(u)}),
     info:()=>({name:hostname(),os:process.platform,arch:process.arch,version:app.getVersion()}),
-    localRequest:async(method,path,body)=>{const r=await fetch(status().endpoint+path,{method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000)});return {status:r.status,body:await r.json()};},
+    localRequest:async(method,path,body)=>{const r=await fetch(status().endpoint+path,{method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(path==='/script'?65000:12000)});return {status:r.status,body:await r.json()};},
     grant:(task,title)=>grantTask(task,title),
     onDisconnect:()=>{if(control.state==='agent')stop('Secure desktop connection lost');},
     onChange:s=>{for(const w of [panel,pet,chat])if(w&&!w.isDestroyed())w.webContents.send('link',s);if(s.online)void companion?.refresh().catch(()=>{});if(s.requests.length&&panel&&!panel.isDestroyed()&&control.state!=='agent'){if(panel.isMinimized())panel.restore();panel.showInactive();}},
@@ -168,7 +204,7 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
   ipcMain.handle('pet-move',(event,delta)=>{if(event.sender!==pet.webContents||!Number.isFinite(delta?.x)||!Number.isFinite(delta?.y))return;const [x,y]=pet.getPosition(),a=screen.getDisplayNearestPoint({x:x+Math.round(delta.x),y:y+Math.round(delta.y)}).workArea;pet.setPosition(Math.max(a.x,Math.min(a.x+a.width-185,x+Math.max(-200,Math.min(200,Math.round(delta.x))))),Math.max(a.y,Math.min(a.y+a.height-172,y+Math.max(-200,Math.min(200,Math.round(delta.y))))));if(chat.isVisible())placeChat();});
   ipcMain.handle('pet-hide',()=>{pet.hide();});
   ipcMain.handle('pet-show',(event)=>{requirePanel(event);pet.showInactive();});
-  server=createBridgeService({session:control,native,token,status,capture,stop,toNative:c=>{
+  server=createBridgeService({session:control,native,token,status,capture,stop,operation,scripts,toNative:c=>{
     if(process.platform==='win32'&&c.x!==undefined){const p=screen.dipToScreenPoint({x:c.x,y:c.y});return {...c,x:p.x,y:p.y};}return c;
   }});
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
@@ -257,6 +293,24 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
           if(!button)throw Error('Accessible fixture action missing');
           await agent.act('invoke',{ref:button[0]});
           if(await fixture.webContents.executeJavaScript("document.querySelector('#receipt').textContent")!=='Applied: '+smokeText)throw Error('Native invoke did not reach the own fixture');
+          if(process.platform==='win32'){
+            fixture.show();fixture.focus();selectedWindowId=null;
+            await fixture.webContents.executeJavaScript("document.querySelector('#field').focus()");
+            await agent.operation({kind:'shortcut',key:'A',modifiers:['Control']});
+            const focused=[...agent.refs].find(([_ref,id])=>agent.frame.elements.some(e=>e.id===id&&e.focused&&e.canFill));
+            if(!focused)throw Error('Shortcut fixture lost keyboard focus');
+            await agent.act('type',{ref:focused[0],text:'Shortcut verified'});
+            if(await fixture.webContents.executeJavaScript("document.querySelector('#field').value")!=='Shortcut verified')throw Error('Native shortcut did not select the field text');
+            const folder=join(app.getPath('userData'),'folder-fixture');await mkdir(folder,{recursive:true});await writeFile(join(folder,'remote.txt'),'fixture');
+            const started=performance.now(),listing=await agent.operation({kind:'list',path:folder});if(!listing.text.includes('remote.txt'))throw Error('Direct folder read failed');
+            console.log('SEEK_BRIDGE_FOLDER_SMOKE_OK '+JSON.stringify({calls:1,elapsedMs:Math.round(performance.now()-started)}));
+            try{await agent.script({language:'powershell',source:"Write-Output 'script fixture'"});throw Error('Scripting bypassed approval');}catch(e){if(!e.message.includes('approval'))throw e;}
+            await agent.client.allowScripts();const script=await agent.script({language:'powershell',source:"Write-Output 'script fixture'"});if(!script.text.includes('script fixture'))throw Error('Approved script failed');
+            const screenshot=await fixture.webContents.capturePage(),size=screenshot.getSize();
+            const recognized=await native.execute({kind:'ocr',image:screenshot.toPNG().toString('base64'),x:0,y:0,width:size.width,height:size.height});
+            if(!recognized.elements.some(e=>/fixture/i.test(e.name)))throw Error('Windows OCR could not read the fixture');
+            console.log('SEEK_BRIDGE_POWER_SMOKE_OK '+JSON.stringify({shortcut:true,scriptingApproval:true,ocr:true}));
+          }
           console.log('SEEK_BRIDGE_INPUT_SMOKE_OK '+JSON.stringify({platform:process.platform,structuredObservation:true,fill:true,invoke:true}));
         }finally{agent.close();stop('Smoke finished');fixture.destroy();}
       }

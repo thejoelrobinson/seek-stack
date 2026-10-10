@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 if (process.platform !== 'darwin') throw Error('Mac artifact verification requires macOS.');
 const inspect = process.argv.includes('--inspect');
 const signed = process.env.SEEK_MAC_SIGNED_RELEASE === '1';
+const personal = process.env.SEEK_MAC_SIGNING_IDENTITY;
 function command(program, args, required = true, env = process.env) {
  const result = spawnSync(program, args, {encoding: 'utf8', env, timeout: 180000});
  const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
@@ -28,7 +29,8 @@ function verifyApp(app) {
    if (!identity.output.includes('Authority=Developer ID Application:')) throw Error('Mac release lacks a Developer ID Application signature.');
    if (!assessment.output.includes('source=Notarized Developer ID')) throw Error('Gatekeeper did not recognize an Apple-notarized release.');
    command('xcrun', ['stapler', 'validate', app]);
-  } else if (!identity.output.includes('Signature=adhoc')) throw Error('Local Mac preview lacks a valid ad-hoc signature.');
+  } else if(personal){if(!identity.output.includes('Authority='+personal))throw Error('Personal Mac build lacks the selected persistent identity.');}
+  else if (!identity.output.includes('Signature=adhoc')) throw Error('Local Mac preview lacks a valid ad-hoc signature.');
   console.log(signed ? 'MAC RELEASE: signature, universal binaries and Gatekeeper accepted.' : 'MAC PREVIEW ONLY: valid signature and universal binaries; NOT notarized for public distribution.');
  }
  return {integrity: integrity.ok, gatekeeper: assessment.ok};

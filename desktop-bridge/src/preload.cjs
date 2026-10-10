@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('bridge',{
  openTask:(id,browser=false)=>ipcRenderer.invoke('companion-open',{id,browser}),openSettings:()=>ipcRenderer.invoke('companion-settings'),
  onCompanion:fn=>ipcRenderer.on('companion-data',(_e,data)=>fn(data)),onCompanionFocus:fn=>ipcRenderer.on('companion-focus',()=>fn()),
  status:()=>ipcRenderer.invoke('status'),grant:task=>ipcRenderer.invoke('grant',task),stop:()=>ipcRenderer.invoke('stop'),
+ allowScripts:auth=>ipcRenderer.invoke('allow-scripts',auth),
  refreshCapabilities:()=>ipcRenderer.invoke('refresh-capabilities'),
  listWindows:()=>ipcRenderer.invoke('list-windows'),selectWindow:id=>ipcRenderer.invoke('select-window',id),
  selectDisplay:id=>ipcRenderer.invoke('select-display',id),showPet:()=>ipcRenderer.invoke('pet-show'),hidePet:()=>ipcRenderer.invoke('pet-hide'),

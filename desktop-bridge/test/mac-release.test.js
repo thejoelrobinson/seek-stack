@@ -18,3 +18,8 @@ test('notarization accepts complete password, API key or keychain credentials on
  assert.deepEqual(macNotarizationCredentials({APPLE_KEYCHAIN_PROFILE: 'fixture'}), {keychainProfile: 'fixture'});
  assert.deepEqual(macNotarizationCredentials({APPLE_API_KEY: 'key', APPLE_API_KEY_ID: 'id', APPLE_API_ISSUER: 'issuer'}), {appleApiKey: 'key', appleApiKeyId: 'id', appleApiIssuer: 'issuer'});
 });
+test('personal signing is explicit, local only, and cannot masquerade as a Developer ID release',()=>{
+ assert.doesNotThrow(()=>assertMacReleaseCredentials({SEEK_MAC_SIGNING_IDENTITY:'Seek Desktop Personal'},'darwin'));
+ assert.throws(()=>assertMacReleaseCredentials({SEEK_MAC_SIGNING_IDENTITY:'Seek Desktop Personal',SEEK_MAC_SIGNED_RELEASE:'1'},'darwin'),/Choose personal/);
+ assert.throws(()=>assertMacReleaseCredentials({SEEK_MAC_SIGNING_IDENTITY:'Seek Desktop Personal',GITHUB_REF:'refs/tags/bridge-v0.5.2'},'darwin'),/Personal certificates/);
+});

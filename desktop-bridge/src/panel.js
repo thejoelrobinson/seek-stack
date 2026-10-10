@@ -16,6 +16,7 @@ const render=s=>{
  const select=$('#display');select.replaceChildren(...(s.displays||[]).map(d=>new Option(`${d.label} · ${d.width} × ${d.height}`,d.id)));select.value=s.selectedId;select.disabled=s.state==='agent';
  const target=$('#window');if(target){target.replaceChildren(new Option('Active window (shared mouse and keyboard)',''),...(s.windows||[]).map(w=>new Option(w.title,w.id)));target.value=s.selectedWindowId||'';target.disabled=s.state==='agent';target.parentElement.hidden=s.platform!=='win32';}
  $('#grant').disabled=!s.capabilities?.input||!s.capabilities?.structuredObservation||!s.shortcutReady||s.state==='agent';
+ $('#scripts').hidden=s.state!=='agent'||!['darwin','win32'].includes(s.platform);$('#allow-scripts').disabled=!!s.scriptsAllowed;$('#allow-scripts').textContent=s.scriptsAllowed?'Allowed for this task':'Allow scripts for this task';
  $('#capability').textContent=s.capabilities?.input?(s.capabilities.structuredObservation?'Mouse, keyboard and readable app controls are available.':s.capabilities.observationReason):s.capabilities?.inputReason||'Checking desktop capabilities…';
 };
 const renderLink=s=>{
@@ -70,6 +71,7 @@ window.bridge.onInvitation(receiveInvitation);window.bridge.invitation().then(re
 window.bridge.status().then(render).catch(error);window.bridge.linkStatus().then(renderLink).catch(linkError);
 $('#grant').onclick=()=>window.bridge.grant($('#task').value).then(render).catch(error);
 $('#stop').onclick=()=>window.bridge.stop().then(render).catch(error);
+ $('#allow-scripts').onclick=()=>window.bridge.allowScripts({sessionId:latest.sessionId,epoch:latest.epoch}).then(render).catch(error);
 $('#display').onchange=e=>window.bridge.selectDisplay(e.target.value).then(render).catch(error);
 $('#show-pet').onclick=()=>window.bridge.showPet().catch(error);
 const refresh=el('button',{type:'button',textContent:'Check permissions again'});refresh.onclick=()=>window.bridge.refreshCapabilities().then(render).catch(error);$('#capability').after(refresh);

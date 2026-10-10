@@ -11,6 +11,8 @@ export function assertMacReleaseCredentials(env = process.env, platform = proces
  if (env.CSC_LINK === '') delete env.CSC_LINK;
  if (platform !== 'darwin') return;
  const tagged = /^refs\/tags\/bridge-v/.test(env.GITHUB_REF || '');
+ if(env.SEEK_MAC_SIGNING_IDENTITY&&tagged)throw Error('Personal certificates are for your own Mac builds; tagged public downloads need the preview or Developer ID release path.');
+ if(env.SEEK_MAC_SIGNING_IDENTITY&&env.SEEK_MAC_SIGNED_RELEASE==='1')throw Error('Choose personal signing or a Developer ID release, not both.');
  if (tagged && env.SEEK_MAC_SIGNED_RELEASE !== '1' && env.SEEK_MAC_ALLOW_UNNOTARIZED_PREVIEW !== '1')
   throw Error('Public Mac releases require Developer ID signing and notarization. Configure the Mac release credentials first.');
  if (env.SEEK_MAC_SIGNED_RELEASE === '1') {

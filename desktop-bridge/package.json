@@ -1,6 +1,6 @@
 {
   "name": "seek-desktop-bridge",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "type": "module",
   "main": "src/main.js",
@@ -9,6 +9,7 @@
     "test": "node --test test/*.test.js",
     "check": "node scripts/check.mjs",
     "build:native": "node scripts/native.mjs",
+    "signing:setup": "node scripts/personal-signing.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:turn": "node scripts/turn-smoke.mjs",
     "smoke:packaged": "node scripts/smoke.mjs --packaged",

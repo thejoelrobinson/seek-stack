@@ -160,7 +160,7 @@ export class DesktopHub{
   clientFor(id){
     return new DesktopBridgeClient({endpoint:'http://127.0.0.1:1',token:'link',fetchImpl:async(url,opts)=>{
       const path=new URL(url).pathname,body=opts.body?JSON.parse(opts.body):undefined;
-      const r=await this.call(id,{type:'request',method:opts.method||'GET',path,body});
+      const r=await this.call(id,{type:'request',method:opts.method||'GET',path,body},path==='/script'?65000:12000);
       return {ok:r.status>=200&&r.status<300,status:r.status,json:async()=>r.body||{}};
     }});
   }
@@ -188,8 +188,8 @@ export class DesktopHub{
  * computer, or this PC's local companion through its credential file) and, when none, asks the user.
  */
 export class DesktopControl{
-  constructor({hub,local=null,resolveOwner,requestGrant}){
-    Object.assign(this,{hub,local,resolveOwner,requestGrant});this.current=null;this.attaching=false;
+  constructor({hub,local=null,resolveOwner,requestGrant,requestScripts,hasScriptGrant=()=>false}){
+    Object.assign(this,{hub,local,resolveOwner,requestGrant,requestScripts,hasScriptGrant});this.current=null;this.attaching=false;
     this.offHub=hub.on(event=>{
       if(!this.current||this.computer?.id!==event.id)return;
       if(event.type==='offline'||(event.type==='state'&&event.state.taskId!==this.current.taskId)){
@@ -228,11 +228,18 @@ export class DesktopControl{
       const agent=new DesktopAgent({client,taskId:o.taskId});
       try{await agent.attach();exec?.signal?.throwIfAborted();if(where.id!=='local'&&this.hub.machineFor(o.taskId)?.id!==where.id)throw Error('The secure desktop grant ended during attachment');}catch(e){agent.close();throw e;}
       this.current=agent;this.currentSession=o.sessionId;this.computer=where;
+      if(this.hasScriptGrant(o.taskId,where.id))await agent.client.allowScripts();
       // Seek releasing the computer itself (a rotated session, or a task that already ended) is a
       // hand-over, not the person taking control, so it must not pause the task.
       clearInterval(this.watchdog);this.watchdog=setInterval(async()=>{if(this.current!==agent)return;try{await this.owner(exec);}catch{if(this.current!==agent)return;this.current=null;clearInterval(this.watchdog);if(where.id!=='local')this.hub.handovers.add(o.taskId);try{await agent.client.stop();}catch{this.hub.handovers.delete(o.taskId);}finally{agent.close();}}},1000);this.watchdog.unref?.();
       return agent;
     }finally{this.attaching=false;}
+  }
+  async enableScripts(exec){
+    const agent=await this.forExecution(exec),owner=await this.owner(exec);
+    const status=await agent.client.request('/status');
+    if(status.scriptsAllowed)return {text:'Scripting is allowed for this task.',mode:'text'};
+    return {text:await this.requestScripts(owner,exec,this.computer),mode:'text'};
   }
   close(){this.offHub?.();clearInterval(this.watchdog);const c=this.current;this.current=null;if(c?.client.auth)void c.client.stop().catch(()=>{});c?.close();}
 }
