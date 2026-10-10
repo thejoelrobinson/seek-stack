@@ -97,7 +97,10 @@ Developer ID distribution still requires membership and the documented release c
 and a one-call folder listing through the authenticated bridge in an owned fixture window.
 Node tests cover task/session fences, stale OCR targets, folder paging, output bounds, cancellation
 and timeouts. Work tests exercise the phone approval's task/computer/session binding and local
-approval enforcement. CI compiles the universal Mac helper and packages all platforms.
+approval enforcement. CI compiles the universal Mac helper and packages all platforms. Mac
+packaged checks recognize text in an owned rendered fixture with Vision and run harmless shell
+and AppleScript fixtures through the authenticated scripting approval gate. These do not replace
+live Mac Accessibility, Screen Recording or application Automation consent checks.
 
 The local Windows fixture took about 2–3 ms for the one-call folder operation. `npm run
 benchmark:desktop` uses the local Qwen model, the full desktop tool set, and an isolated Downloads

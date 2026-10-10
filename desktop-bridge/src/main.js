@@ -270,6 +270,27 @@ if(!app.requestSingleInstanceLock())app.quit();else app.whenReady().then(async()
         for(const peer of [rtcA,rtcB])peer.pc.dtlsTransports[0].verifyRemoteCertificateFingerprint();
         console.log('SEEK_BRIDGE_WEBRTC_SMOKE_OK');
       }finally{rtcA?.close();rtcB?.close();}
+      if(process.platform==='darwin'){
+        // Own rendered fixture only: exercise Vision without Screen Recording or AX consent.
+        const fixture=new BrowserWindow({width:650,height:450,show:false,...opts});protect(fixture);
+        try{
+          await fixture.loadFile(join(root,'fixture.html'));
+          const image=await fixture.webContents.capturePage(),size=image.getSize();
+          const recognized=await native.execute({kind:'ocr',image:image.toPNG().toString('base64'),x:0,y:0,width:size.width,height:size.height});
+          if(!recognized.elements.some(e=>/fixture/i.test(e.name)))throw Error('Mac Vision could not read the own fixture');
+          const taskId='mac-power-smoke-'+process.pid;control.grant(taskId);
+          const agent=new DesktopAgent({taskId,client:new DesktopBridgeClient({endpoint:status().endpoint,token})});
+          try{
+            await agent.attach();
+            try{await agent.script({language:'shell',source:"printf 'Mac shell fixture\\n'"});throw Error('Mac scripting bypassed approval');}catch(e){if(!e.message.includes('approval'))throw e;}
+            await agent.client.allowScripts();
+            for(const [language,source,expected] of [['shell',"printf 'Mac shell fixture\\n'",'Mac shell fixture'],['applescript','return "Mac AppleScript fixture"','Mac AppleScript fixture']]){
+              const result=await agent.script({language,source});if(!result.text.includes(expected))throw Error('Mac '+language+' fixture failed');
+            }
+          }finally{agent.close();stop('Mac power smoke finished');}
+          console.log('SEEK_BRIDGE_MAC_POWER_SMOKE_OK '+JSON.stringify({vision:true,scriptingApproval:true,shell:true,applescript:true}));
+        }finally{fixture.destroy();}
+      }
       if(inputSmoke){
         app.setAccessibilitySupportEnabled(true);
         const fixture=new BrowserWindow({width:650,height:450,show:true,...opts});protect(fixture);
