@@ -1,5 +1,6 @@
 import {homeGreeting,recentWork,syncEditorial,appearanceEditor} from '/work/editorial.js';
 import {md,CARET} from '/work/markdown.js';
+import {renderRichReply,renderWidgets,installWidgetInteractions} from '/work/widgets.js';
 import {request,decorateTabs} from '/work/runtime.js';
 import {updateModels,modelActivity,createImage} from '/work/models.js';
 import {artifactCard,libraryHTML,libraryItems,taskSummary,BUILTIN_TEMPLATES,templateForm,templateObjective,workflowInput,workflowSections,groceryItemRow,trapModal,mountVoice,artifactURL,approvalDetails,approvalAttributes,wallTimeToUTC} from '/work/product.js';
@@ -14,6 +15,12 @@ const TITLES={tasks:'Tasks',files:'Library',ideas:'Ideas for you',images:'Studio
 // Older links and saved state may name views that are now tabs or the inbox panel.
 const viewFor=v=>v==='settings'?'profile':VIEWS.includes(v)?v:'chat';
 const taskCache=new Map(),drafts=new Map(),featureLoads=new Map();
+const widgetSorts=new Map();
+installWidgetInteractions(document,{sorts:widgetSorts,onPrompt:request=>{
+  const prompt=$('#prompt');if(!prompt||submitting)return;
+  const draft=prompt.value.trim();prompt.value=draft&&draft!==request?draft+'\n\n'+request:request;
+  saveDraft();prompt.focus();toast('Follow-up ready. Review it and press Send.');
+}});
 let uploading=false,submitting=false,submission=null,revision=0,pollTimer=null,polling=false,eventStream=null,searchQuery='',showArchive=false,syncPromise=null;
 let libraryQuery='',libraryType='all',libraryDate='all',libraryHits=null,librarySearching=false,libraryTimer=0,librarySequence=0,libraryLimit=100,compared=[],activeWorkflow=null,sourceArtifact=null,workflowItems=null,workflowCpuCatalog=null,workflowBusy=false,workflowError='',workflowCpuError='',groceryRowIndex=0,searchTimer=0,searchSequence=0,panelFocusCleanup=null,menuFocusCleanup=null,panelPinned=false,lastAttention='';
 try{panelPinned=localStorage.getItem('seek-panel-pinned')==='true';}catch{}
@@ -442,7 +449,10 @@ function fileResolver(t){
 }
 function bubble(t,m,i){
   const key=t.id+':'+i,live=typing?.key===key,mine=m.role==='user';
-  const files={resolveFile:fileResolver(t)},text=mine?linkify(m.text):live?md(m.text.slice(0,typing.shown)+CARET,files).replace(CARET,'<span class="caret"></span>'):md(m.text,files);
+  const files={resolveFile:fileResolver(t)},options={...files,markdown:source=>md(source,files),key,sorts:widgetSorts};
+  let text=mine?linkify(m.text):renderRichReply(live?m.text.slice(0,typing.shown)+CARET:m.text,options);
+  if(!mine&&m.widgets){try{text=renderWidgets(m.widgets,options)+(m.viewSummary?md(m.viewSummary,files):'');}catch{text=md(m.text,files);}}
+  if(live)text=text.replace(CARET,'<span class="caret"></span>');
   if(mine)return `<div class="bubble user" data-msg="${key}">${editing?.key===key?editor(i):`<div class="msg-text">${text}</div><div class="msg-actions"><button data-edit-message="${i}" aria-label="Edit this request in a new branch" title="Edit in a new branch">${icon('edit')}Edit</button><button data-retry-message="${i}" aria-label="Retry from this request in a new branch" title="Retry from here in a new branch">${icon('reload')}Retry</button></div>`}</div>`;
   return `<div class="bubble assistant" data-msg="${key}"><div class="speaker"><span class="buddy" data-buddy="face"></span>${esc(state.settings.name)}</div><div class="msg-text md">${text}</div><div class="msg-tools"><button class="copy-answer" data-copy-message="${i}" aria-label="Copy answer">${icon('copy')}Copy</button></div></div>`;
 }

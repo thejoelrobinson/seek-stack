@@ -7,13 +7,28 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const LINK = 'target="_blank" rel="noopener noreferrer"';
 const ITEM = /^(\s*)([-*+]|\d{1,3}[.)])\s+(.*)$/;
 const RULE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
-const FENCE = /^\s{0,3}(```|~~~)/;
+const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
-const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 // Private-use characters hold code spans and URLs out of the emphasis pass.
 const HOLD = /(\d+)/g;
 /** Marks where a typewriter caret goes; callers replace it after rendering. */
 export const CARET = '';
+
+// GFM tables escape literal pipes even inside code spans. Count backslashes so
+// an escaped backslash followed by a pipe still starts a new cell.
+function tableCells(row) {
+  const parts = []; let cell = '', slashes = 0;
+  for (const c of row.trim()) {
+    if (c === '|' && slashes % 2 === 0) { parts.push(cell.trim()); cell = ''; }
+    else if (c === '|' && slashes % 2) cell = cell.slice(0, -1) + c;
+    else cell += c;
+    slashes = c === '\\' ? slashes + 1 : 0;
+  }
+  parts.push(cell.trim());
+  if (row.trim().startsWith('|')) parts.shift();
+  if (parts.at(-1) === '' && /(?<!\\)(?:\\\\)*\|\s*$/.test(row)) parts.pop();
+  return parts;
+}
 
 // Set only for the duration of one md() call; maps a task-relative path to {url, preview, image}.
 let resolveFile = null;
@@ -31,7 +46,7 @@ export function inline(text) {
   const hold = html => `${held.push(html) - 1}`;
   let h = esc(String(text ?? '').replace(/[]/g, ''));
   // A code span that names a recorded artifact exactly (e.g. `notes/plan.md`) links to it.
-  h = h.replace(/`([^`\n]+)`/g, (_, code) => {
+  h = h.replace(/(`+)([^\n]*?[^`])\1(?!`)/g, (_, _ticks, code) => {
     const file = resolveFile && FILE_NAME.test(code) ? resolveFile(code.replace(/&amp;/g, '&')) : null;
     return hold(file ? `<a class="md-file" href="${esc(file.preview || file.url)}" ${LINK}><code>${code}</code></a>` : `<code>${code}</code>`);
   });
@@ -63,9 +78,12 @@ function renderBlocks(src) {
   let i = 0;
   const indent = l => l.match(/^\s*/)[0].replace(/\t/g, '    ').length;
   const isItem = n => ITEM.test(lines[n]);
-  const isTable = n => lines[n].includes('|') && n + 1 < lines.length && TABLE_SEP.test(lines[n + 1]);
+  const isTable = n => {
+    if (!lines[n]?.includes('|') || n + 1 >= lines.length) return false;
+    const head = tableCells(lines[n]), separator = tableCells(lines[n + 1]);
+    return head.length > 0 && head.length === separator.length && separator.every(c => /^:?-+:?$/.test(c));
+  };
   const startsBlock = n => FENCE.test(lines[n]) || HEADING.test(lines[n]) || RULE.test(lines[n]) || /^\s*>/.test(lines[n]) || isItem(n) || isTable(n);
-  const cells = row => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
   const item = parts => parts.map((p, k) => typeof p !== 'string' ? p.sub
     : (k ? '<br>' : '') + inline(k ? p : p.replace(/^\[([ xX])\]\s+/, (_, c) => c === ' ' ? '☐ ' : '☑ '))).join('');
 
@@ -84,6 +102,11 @@ function renderBlocks(src) {
       const m = line.match(ITEM), ind = indent(line);
       if (m && ind === base) { items.push([m[3]]); i++; continue; }
       if (m && ind > base && items.length) { items.at(-1).push({ sub: list() }); continue; }
+      if (!m && ind > base && items.length && startsBlock(i)) {
+        const buf = [];
+        while (i < lines.length && (!lines[i].trim() || indent(lines[i]) > base)) buf.push(lines[i++].slice(ind));
+        items.at(-1).push({ sub: renderBlocks(buf.join('\n')) }); continue;
+      }
       if (!m && items.length && (ind > base || (lines[i - 1].trim() && !startsBlock(i)))) { items.at(-1).push(line.trim()); i++; continue; }
       break;
     }
@@ -99,7 +122,8 @@ function renderBlocks(src) {
     if (fence) {
       const buf = [];
       i++;
-      while (i < lines.length && !lines[i].trim().startsWith(fence[1])) buf.push(lines[i++]);
+      const close = new RegExp('^\\s{0,3}' + fence[1][0] + '{' + fence[1].length + ',}\\s*$');
+      while (i < lines.length && !close.test(lines[i])) buf.push(lines[i++]);
       i++;
       out += `<pre><code>${esc(buf.join('\n'))}</code></pre>`;
       continue;
@@ -108,10 +132,15 @@ function renderBlocks(src) {
     if (h) { out += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`; i++; continue; }
     if (RULE.test(line)) { out += '<hr>'; i++; continue; }
     if (isTable(i)) {
-      const head = cells(line), align = cells(lines[i + 1]).map(c => /^:-+:$/.test(c) ? 'center' : /-:$/.test(c) ? 'right' : '');
+      const head = tableCells(line), align = tableCells(lines[i + 1]).map(c => /^:-+:$/.test(c) ? 'center' : /-:$/.test(c) ? 'right' : /^:-+$/.test(c) ? 'left' : '');
       i += 2;
       const rows = [];
-      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) rows.push(cells(lines[i++]));
+      while (i < lines.length && lines[i].trim() && !FENCE.test(lines[i]) && !HEADING.test(lines[i]) && !RULE.test(lines[i]) && !/^\s*>/.test(lines[i]) && !isItem(i)) {
+        const row = tableCells(lines[i++]);
+        const padded = head.map((_, k) => row[k] ?? '');
+        if (row.join('').includes(CARET) && !padded.join('').includes(CARET)) padded[padded.length - 1] += CARET;
+        rows.push(padded);
+      }
       const cell = (tag, c, k) => `<${tag}${align[k] ? ` style="text-align:${align[k]}"` : ''}>${inline(c)}</${tag}>`;
       out += `<div class="md-table"><table><thead><tr>${head.map((c, k) => cell('th', c, k)).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((c, k) => cell('td', c, k)).join('')}</tr>`).join('')}</tbody></table></div>`;
       continue;
@@ -119,7 +148,7 @@ function renderBlocks(src) {
     if (/^\s*>/.test(line)) {
       const buf = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''));
-      out += `<blockquote>${md(buf.join('\n'))}</blockquote>`;
+      out += `<blockquote>${renderBlocks(buf.join('\n'))}</blockquote>`;
       continue;
     }
     if (isItem(i)) { out += list(); continue; }
@@ -139,9 +168,10 @@ export const MD_CSS = `.md{line-height:1.65;overflow-wrap:break-word}.md>:first-
 .md pre{background:#1f1b27;color:#eee8f7;border-radius:10px;padding:12px 14px;overflow:auto;margin:0 0 .8em}.md pre code{background:none;padding:0;color:inherit;white-space:pre}
 .md blockquote{margin:0 0 .8em;padding:2px 0 2px 12px;border-left:3px solid #d9cfe9;color:#5f5868}
 .md hr{border:0;border-top:1px solid #ece8f0;margin:1.1em 0}
-.md .md-table{overflow-x:auto;margin:0 0 .8em;border:1px solid #ece8f0;border-radius:10px;overflow-wrap:normal}
+.md .md-table{overflow-x:auto;max-width:100%;min-width:0;margin:0 0 .8em;border:1px solid #ece8f0;border-radius:10px;overflow-wrap:normal}
 .md table{border-collapse:collapse;width:100%;font-size:.93em}.md th,.md td{padding:7px 10px;border-bottom:1px solid #f0edf3;text-align:left;vertical-align:top}
 .md th{background:#f7f5fa;font-weight:600}.md tr:last-child td{border-bottom:0}
+.md th,.md td{min-width:7ch;max-width:40ch;white-space:normal;overflow-wrap:anywhere}
 .md a{color:#514381;text-decoration:underline;text-decoration-color:#cbbfe0;text-underline-offset:2px}.md strong{font-weight:650}`;
 
 /** A standalone page for previewing a .md file. */

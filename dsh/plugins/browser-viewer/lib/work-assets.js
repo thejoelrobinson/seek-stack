@@ -10,6 +10,7 @@ Object.assign(WORK_FILES,{'/work/calendar.js':'work-calendar-client.js','/work/c
 Object.assign(WORK_FILES,{'/work/desktop.js':'work-desktop-client.js','/work/desktop.css':'work-desktop.css'});
 Object.assign(WORK_FILES,{'/work/mirror.js':'work-mirror.js','/work/mirror-shape.js':'mirror-shape.js'});
 Object.assign(WORK_FILES,{'/work/growth.js':'work-growth-client.js','/work/growth.css':'work-growth.css'});
+Object.assign(WORK_FILES,{'/work/widgets.js':'work-widgets.js','/work/widgets.css':'work-widgets.css'});
 export class WorkAssets {
   async init(){
     this.files=new Map();this.version=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8')).version;

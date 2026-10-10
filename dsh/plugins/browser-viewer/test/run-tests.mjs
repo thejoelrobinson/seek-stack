@@ -7,5 +7,6 @@ suites.push('companion','desktop-scripts');
 suites.push('routines');
 suites.push('workflow-contracts','workflow-runner','workflow-engine','workflow-api','workflow-ui');
 suites.push('workflow-recovery','workflow-policy');
+suites.push('chat-widgets','chat-widgets-ui');
 const child=spawn(process.execPath,['--import','./test/register-profile.mjs','--test',...suites.map(x=>'test/'+x+'.test.mjs')],{cwd:root,stdio:'inherit',windowsHide:true});
 child.on('error',error=>{console.error(error.message);process.exitCode=1;});child.on('exit',code=>{process.exitCode=code??1;});

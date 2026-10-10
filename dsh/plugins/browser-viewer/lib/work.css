@@ -1,3 +1,4 @@
+@import url('/work/widgets.css');
 /* Seek Work: app shell and shared components.
    One token set drives every color, radius and shadow. Feature styles (finance, studio,
    memory, report card, models, buddy) live in their own files and load after this one.
@@ -621,9 +622,11 @@ body.bv-open{overflow:hidden}
 .md pre{background:#1f1b27;color:#eee8f7;border-radius:11px;padding:13px 15px;overflow:auto;margin:0 0 .85em;white-space:pre}.md pre code{background:none;border:0;padding:0;color:inherit}
 .md blockquote{margin:0 0 .85em;padding:2px 0 2px 13px;border-left:3px solid #d9cfe9;color:var(--ink-2)}
 .md hr{border:0;border-top:1px solid var(--line);margin:1.1em 0}
-.md .md-table{overflow-x:auto;margin:0 0 .85em;border:1px solid var(--line);border-radius:11px;overflow-wrap:normal;background:var(--surface)}
+.md .md-table{overflow-x:auto;max-width:100%;min-width:0;margin:0 0 .85em;border:1px solid var(--line);border-radius:11px;overflow-wrap:normal;background:var(--surface)}
 .md table{border-collapse:collapse;width:100%;font-size:.92em}.md th,.md td{padding:8px 11px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 .md th{background:var(--surface-2);font-weight:600}.md tr:last-child td{border-bottom:0}
+.md th,.md td{min-width:7ch;max-width:40ch;white-space:normal;overflow-wrap:anywhere}
+.conversation,.bubble.assistant,.msg-text.md{min-width:0}
 .md a{text-decoration:underline;text-decoration-color:#cbbfe0;text-underline-offset:2px}.md strong{font-weight:650}
 .md .md-media{display:block;margin:10px 0;max-width:min(100%,560px);border-radius:12px;overflow:hidden;border:1px solid var(--line);line-height:0}.md .md-media img{display:block;width:100%;height:auto;max-height:420px;object-fit:contain;background:#f6f3f9}.md .md-file::before{content:"▤ ";font-size:.9em}
 

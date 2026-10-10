@@ -62,3 +62,38 @@ test('code spans naming a recorded artifact link to it; other code stays code',(
   assert.match(html,/<code>npm test<\/code>/);assert.match(html,/<code>other\.md<\/code>/);assert.equal((html.match(/<a /g)||[]).length,1);
   assert.equal(md('`weekend/plan.md`'),'<p><code>weekend/plan.md</code></p>');
 });
+
+test('tables preserve escaped pipes, code, links, alignment and rectangular rows',()=>{
+  const html=md('Name | Expression | Price\r\n:--- | :---: | ---:\r\nA\\|B | `x\\|y` | **$10**\r\n[Source](https://example.com/?a=1&b=2) | partial\r\nC | complete | 3 | ignored');
+  assert.match(html,/<th style="text-align:left">Name/);
+  assert.match(html,/<th style="text-align:center">Expression/);
+  assert.match(html,/<td style="text-align:left">A\|B<\/td>/);
+  assert.match(html,/<code>x\|y<\/code>/);
+  assert.match(html,/<td style="text-align:right"><strong>\$10<\/strong><\/td>/);
+  assert.match(html,/href="https:\/\/example.com\/\?a=1&amp;b=2"/);
+  assert.equal((html.match(/<td[ >]/g)||[]).length,9);
+  assert.doesNotMatch(html,/ignored/);
+  assert.match(html,/partial<\/td><td style="text-align:right"><\/td>/);
+  assert.match(md('| empty | value |\n|---|---|\n||2|'),/<td><\/td><td>2<\/td>/);
+  assert.match(md('A | B\n--- | ---\nOnly A'),/<td>Only A<\/td><td><\/td>/);
+});
+
+test('tables detect valid headers, stop at new blocks, and preserve literal code examples',()=>{
+  assert.doesNotMatch(md('a | b\n--- | --- | ---\nc | d'),/<table/);
+  assert.match(md('| Only |\n| --- |\n| one |'),/<table/);
+  assert.doesNotMatch(md('one\\|two\n--- | ---'),/<table/);
+  assert.match(md('| a | b |\n|---|---|\n|1|2|\n# Next | heading'),/<\/table><\/div><h1>Next \| heading<\/h1>/);
+  assert.doesNotMatch(md('```markdown\n| a | b |\n|---|---|\n|1|2|\n```'),/<table/);
+  assert.match(md('````markdown\n```\n| a | b |\n|---|---|\n````'),/<pre><code>```/);
+});
+
+test('tables inside quotes/lists render as blocks and keep the artifact resolver',()=>{
+  const resolveFile=path=>path==='a.md'?{url:'/work/api/artifact?task=t&id=a'}:null;
+  const quote=md('> | File | Value |\n> |---|---|\n> | [Report](a.md) | 2 |',{resolveFile});
+  assert.match(quote,/<blockquote><div class="md-table">/);
+  assert.match(quote,/<a class="md-file"/);
+  const list=md('- Comparison\n\n  | File | Value |\n  |---|---|\n  | [Report](a.md) | 2 |\n\n- Next',{resolveFile});
+  assert.match(list,/<li>Comparison<div class="md-table">/);
+  assert.match(list,/<a class="md-file"/);
+  assert.match(list,/<\/div><\/li><li>Next<\/li>/);
+});
