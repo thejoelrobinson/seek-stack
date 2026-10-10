@@ -5,7 +5,7 @@ export const SHORTCUT_KEYS=new Set(['Enter','Escape','Tab','Backspace','Delete',
 export function shortcut(command){
  if(!SHORTCUT_KEYS.has(command.key))throw Error('Unsupported shortcut key');
  const modifiers=command.modifiers??[];
- if(!Array.isArray(modifiers)||modifiers.length>4||new Set(modifiers).size!==modifiers.length||modifiers.some(m=>!['Control','Command','Alt','Shift'].includes(m)))throw Error('Use Control, Command, Alt or Shift modifiers');
+ if(!Array.isArray(modifiers)||modifiers.length>4||new Set(modifiers).size!==modifiers.length||modifiers.some(m=>!['Control','Command','Windows','Alt','Shift'].includes(m)))throw Error('Use Control, Command, Windows, Alt or Shift modifiers');
  return {kind:'shortcut',key:command.key,modifiers};
 }
 function text(value,label,max=1024){if(typeof value!=='string'||!value.trim()||value.length>max||/[\u0000-\u001f]/.test(value))throw Error('Invalid '+label);return value;}

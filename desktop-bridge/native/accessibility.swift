@@ -28,7 +28,9 @@ func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
 func attributes(_ element: AXUIElement) -> [String: Any] {
     let names = ["AXRole", "AXSubrole", "AXTitle", "AXDescription", "AXPosition", "AXSize", "AXEnabled", "AXValue", "AXChildren", "AXHelp"]
     var values: CFArray?
-    guard AXUIElementCopyMultipleAttributeValues(element, names as CFArray, [], &values) == .success, let list = values as? [Any] else { return [:] }
+    guard AXUIElementCopyMultipleAttributeValues(element, names as CFArray, [], &values) == .success, let list = values as? [Any] else {
+        return Dictionary(uniqueKeysWithValues: names.compactMap { name in attribute(element, name).map { (name, $0 as Any) } })
+    }
     return Dictionary(uniqueKeysWithValues: zip(names, list))
 }
 func rectFromAttributes(_ values: [String: Any]) -> CGRect? {

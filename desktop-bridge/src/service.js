@@ -29,6 +29,7 @@ export function createBridgeService({session,native,token,status,capture,toNativ
         session.check(body);if(busy)throw Error('Wait for the current action to finish');
         const script=req.url==='/script';if(script)session.checkScripts(body);
         const command=script?body.command:validateOperation(body.command);
+        if(script&&scripts?.validate)scripts.validate(command);
         if(!script&&!operation)throw Error('Direct desktop operations are unavailable');
         busy=true;
         try{

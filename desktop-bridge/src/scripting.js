@@ -1,10 +1,15 @@
 import {spawn} from 'node:child_process';
 export class DesktopScripts{
  constructor({platform=process.platform,spawnImpl=spawn}={}){this.platform=platform;this.spawn=spawnImpl;this.current=null;}
- run({language,source,timeoutMs=8000}){
-  if(this.current)throw Error('A script is already running');
+ validate({language,source,timeoutMs=8000}={}){
   if(typeof source!=='string'||!source.trim()||source.length>12000||source.includes('\0'))throw Error('Use 1–12000 characters of script');
   if(!Number.isInteger(timeoutMs)||timeoutMs<100||timeoutMs>60000)throw Error('Script timeout must be 100–60000 ms');
+  if(!(this.platform==='darwin'&&['applescript','shell'].includes(language)||this.platform==='win32'&&language==='powershell'))throw Error('Use applescript or shell on Mac, powershell on Windows');
+  return {language,source,timeoutMs};
+ }
+ run({language,source,timeoutMs=8000}){
+  if(this.current)throw Error('A script is already running');
+  this.validate({language,source,timeoutMs});
   let exe,args,input;
   if(this.platform==='darwin'&&language==='applescript'){exe='/usr/bin/osascript';args=['-'];input=source;}
   else if(this.platform==='darwin'&&language==='shell'){exe='/bin/zsh';args=['-c',source];}
