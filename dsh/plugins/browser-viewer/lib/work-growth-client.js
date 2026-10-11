@@ -2,7 +2,7 @@
 // changes the improvement loop tried (and why they shipped or not), and the night-shift journal.
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const when=n=>n?new Date(n).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Not yet';
-const STEP={tests:'Task tests',skills:'Learning skills',improve:'Trying improvements',prepare:'Preparing drafts'};
+const STEP={tests:'Task tests',speed:'Speed check',skills:'Learning skills',improve:'Trying improvements',prepare:'Preparing drafts'};
 const SKILL={testing:'Being tested',trial:'On trial',active:'Proven',retired:'Retired'};
 const CHANGE={shipped:'Shipped',rejected:'Not shipped',reverted:'Reverted',interrupted:'Paused — will retry','needs-developer':'Needs a developer'};
 let api,toast,data=null,tab='tests',timer=null,fetching=false;
@@ -25,10 +25,10 @@ function paint(){
   const shipped=data.improvements.filter(i=>i.status==='shipped').length,proven=data.skills.filter(s=>s.status==='active').length;
   host.querySelector('#growth-status').innerHTML=`<div class="growth-score"><div class="growth-big">${b?`${b.passed}<small>/${b.total}</small>`:'—'}</div><div><strong>${b?`Task tests passed${delta?` · ${delta>0?'+':''}${delta} since the run before`:''}`:'No test run yet'}</strong><p>${b?`Last run ${when(b.startedAt)}`:'Run the tests once to get a baseline.'} · ${proven} proven skill${proven===1?'':'s'} · ${shipped} improvement${shipped===1?'':'s'} in use</p></div><div class="growth-run">${data.running?`<span class="growth-working">${esc(STEP[data.running]||'Night shift')}…</span><button type="button" data-growth-stop>Stop</button>`:`<button type="button" class="primary" data-growth-run="tests">Run tests now</button><button type="button" data-growth-run="all">Run the whole night shift</button>`}</div></div>`;
   const counts={tests:data.cases.length,skills:data.skills.filter(s=>s.status!=='retired').length,improvements:data.improvements.length};
-  host.querySelector('.growth-tabs').innerHTML=[['tests','Task tests'],['skills','Skills'],['improvements','Improvements'],['shift','Night shift']].map(([k,l])=>`<button type="button" role="tab" data-growth-tab="${k}" aria-selected="${tab===k}">${l}${counts[k]?` <span>${counts[k]}</span>`:''}</button>`).join('');
+  host.querySelector('.growth-tabs').innerHTML=[['tests','Task tests'],['speed','Speed'],['skills','Skills'],['improvements','Improvements'],['shift','Night shift']].map(([k,l])=>`<button type="button" role="tab" data-growth-tab="${k}" aria-selected="${tab===k}">${l}${counts[k]?` <span>${counts[k]}</span>`:''}</button>`).join('');
   const body=host.querySelector('#growth-body');
   if(body.querySelector('form:focus-within'))return;
-  body.innerHTML=tab==='tests'?testsHTML():tab==='skills'?skillsHTML():tab==='improvements'?improvementsHTML():shiftHTML();
+  body.innerHTML=tab==='tests'?testsHTML():tab==='speed'?speedHTML():tab==='skills'?skillsHTML():tab==='improvements'?improvementsHTML():shiftHTML();
 }
 function testsHTML(){
   const runs=[...data.history].reverse(),max=Math.max(1,...runs.map(r=>r.total));
@@ -39,6 +39,16 @@ function testsHTML(){
     const running=live?.caseId===c.id;
     return `<article class="growth-case ${running?'running':r?r.passed?'ok':'bad':''}"><div class="growth-case-top"><span class="growth-mark">${r?r.passed?'✓':'✗':'·'}</span><strong>${esc(c.title)}</strong><span class="growth-chip">${esc(c.category)}</span></div><p class="growth-meta">${running?`Running now… ${Math.round((Date.now()-live.startedAt)/1000)}s`:r?`${r.fresh?'This run · ':''}${r.seconds??'—'}s · ${r.steps??0} steps · ${esc(r.detail?.reason||r.status)}`:'Not run yet'}</p><div class="growth-dots">${dots}</div>${r?.taskId?`<button type="button" class="growth-link" data-select="${esc(r.taskId)}">Open the test run</button>`:''}</article>`;}).join('')}</div>`;
 }
+const gb=m=>Number.isFinite(m)?(m/1024).toFixed(1)+' GB':'—',num=(n,u='')=>Number.isFinite(n)?Math.round(n)+u:'—';
+function speedHTML(){
+  const rows=data.speed||[];
+  if(!rows.length)return '<div class="growth-empty"><strong>No speed check yet.</strong><p>After the task tests each night, Seek asks the model the same question a few times and records how quickly it starts answering, how fast it writes, how long tasks take and how much graphics memory it uses. Nights when something else was using the GPU are kept but not compared.</p></div>';
+  const last=rows[0],clean=rows.filter(r=>!r.contended).slice(0,14).reverse(),top=Math.max(1,...clean.map(r=>r.decodeTps||0));
+  const alarm=last.regressions.length?`<div class="growth-notes"><h3>Slower than recent nights</h3><ul>${last.regressions.map(r=>`<li><span>${esc(regression(r))}</span></li>`).join('')}</ul></div>`:'';
+  const trend=clean.length>1?`<div class="growth-trend-wrap"><div><div class="growth-trend" aria-label="Generation speed over the last ${clean.length} quiet nights">${clean.map(r=>`<span title="${esc(when(r.at))}: ${num(r.decodeTps,' tok/s')}" style="height:${Math.max(6,Math.round((r.decodeTps||0)/top*56))}px"></span>`).join('')}</div><small>Generation speed</small></div></div>`:'';
+  return `${alarm}${trend}<table class="growth-speed"><thead><tr><th>Night</th><th>First token</th><th>Writing</th><th>Reading</th><th>Task time</th><th>Peak memory</th></tr></thead><tbody>${rows.slice(0,14).map(r=>`<tr class="${r.contended?'contended':r.regressions.length?'bad':''}"><td>${esc(when(r.at))}${r.contended?`<small>Not compared: ${esc(r.why)}</small>`:''}</td><td>${num(r.ttftMs,' ms')}</td><td>${num(r.decodeTps,' tok/s')}</td><td>${num(r.prefillTps,' tok/s')}</td><td>${Number.isFinite(r.taskIndex)?`${r.taskIndex>1?'+':''}${Math.round((r.taskIndex-1)*100)}%`:'—'}</td><td>${gb(r.peakVramMiB??r.probeVramMiB)}</td></tr>`).join('')}</tbody></table><p class="growth-meta">${esc(last.model||'')} · task time is compared with recent nights, case by case · a night counts as slower when it is 15–25% off the median of recent quiet nights</p>`;
+}
+function regression(r){return r.metric==='taskIndex'?`Tasks took ${Math.round((r.ratio-1)*100)}% longer`:`${r.label[0].toUpperCase()+r.label.slice(1)}: ${/Vram/.test(r.metric)?gb(r.now):num(r.now,r.metric==='ttftMs'?' ms':' tok/s')} (was ${/Vram/.test(r.metric)?gb(r.baseline):num(r.baseline,r.metric==='ttftMs'?' ms':' tok/s')})`;}
 function skillsHTML(){
   if(!data.skills.length)return '<div class="growth-empty"><strong>No skills yet.</strong><p>After a task goes well, the night shift turns it into a step-by-step skill and tests it before it is trusted.</p></div>';
   return data.skills.map(s=>{const b=s.body||{},test=s.tests?.at(-1);
@@ -58,7 +68,7 @@ function shiftHTML(){
   <div class="growth-steps">${Object.entries(STEP).map(([k,l])=>`<div class="growth-step"><strong>${l}</strong><span class="growth-meta">${esc(st[k]?.status||'not run today')}${st[k]?.at?' · '+esc(when(st[k].at)):''}</span><button type="button" data-growth-run="${k}" ${data.running?'disabled':''}>Run now</button></div>`).join('')}</div>
   <h3 class="growth-h3">Journal</h3><ul class="growth-journal">${data.journal.map(j=>`<li><time>${esc(when(j.at))}</time><strong>${esc(STEP[j.step]||(j.step==='all'?'Whole night shift':j.step==='spot'?'Spot check':j.step))}</strong> ${esc(j.status)}${j.detail?` <span>${esc(summary(j.detail))}</span>`:''}</li>`).join('')||'<li class="growth-meta">Nothing yet.</li>'}</ul>`;
 }
-function summary(d){if(d.error)return d.error;if(d.total!==undefined)return `${d.passed}/${d.total} passed${d.reverted?`, ${d.reverted} change reverted`:''}`;if(d.skills)return d.skills.map(x=>`${x.name} (${x.status})`).join(', ')||'no new skills';if(d.changes)return d.changes.map(x=>`${x.title} — ${x.status}`).join('; ')||'nothing to try';if(d.prepared)return d.prepared.map(x=>x.title).join('; ')||'nothing to prepare';return '';}
+function summary(d){if(d.error)return d.error;if(d.decodeTps!==undefined)return `${num(d.ttftMs,' ms')} to first token, ${num(d.decodeTps,' tok/s')}, peak ${gb(d.peakVramMiB??d.probeVramMiB)}${d.contended?` · not compared (${d.why})`:d.regressions?.length?` · slower: ${d.regressions.join('; ')}`:''}`;if(d.total!==undefined)return `${d.passed}/${d.total} passed${d.reverted?`, ${d.reverted} change reverted`:''}`;if(d.skills)return d.skills.map(x=>`${x.name} (${x.status})`).join(', ')||'no new skills';if(d.changes)return d.changes.map(x=>`${x.title} — ${x.status}`).join('; ')||'nothing to try';if(d.prepared)return d.prepared.map(x=>x.title).join('; ')||'nothing to prepare';return '';}
 
 document.addEventListener('click',async e=>{
   const t=e.target.closest('[data-growth-tab]');if(t){tab=t.dataset.growthTab;paint();return;}
