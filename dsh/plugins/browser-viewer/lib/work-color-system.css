@@ -408,6 +408,9 @@
 [data-experience] .growth-journal li{border-bottom:1px solid var(--line);color:var(--ink-2)}
 [data-experience] .growth-journal time{color:var(--muted)}
 [data-experience] .growth-journal span{color:var(--ink-2)}
+[data-experience] .growth-speed th{color:var(--ink-2);border-bottom:1px solid var(--line)}
+[data-experience] .growth-speed td{border-bottom:1px solid var(--line)}
+[data-experience] .growth-speed td small,[data-experience] .growth-speed tr.contended td{color:var(--muted)}
 [data-experience] .growth-case.running{border-color:var(--line-strong);background:var(--surface)}
 [data-experience] .growth-trend-wrap small{color:var(--ink-2)}
 [data-experience] .growth-trend-wrap .growth-trend{border-bottom:1px solid var(--line)}

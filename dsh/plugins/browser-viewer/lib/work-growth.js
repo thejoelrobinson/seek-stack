@@ -28,6 +28,7 @@ export class GrowthStore {
       CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY,text TEXT NOT NULL,status TEXT NOT NULL,origin TEXT,improvement_id TEXT,created_at INTEGER,updated_at INTEGER);
       CREATE TABLE IF NOT EXISTS improvements(id TEXT PRIMARY KEY,at INTEGER,kind TEXT,title TEXT,rationale TEXT,change TEXT,status TEXT,signal TEXT,baseline TEXT,candidate TEXT,decided_at INTEGER,detail TEXT);
       CREATE TABLE IF NOT EXISTS shift(seq INTEGER PRIMARY KEY AUTOINCREMENT,at INTEGER,day TEXT,step TEXT,status TEXT,detail TEXT);
+      CREATE TABLE IF NOT EXISTS speed(id INTEGER PRIMARY KEY AUTOINCREMENT,at INTEGER,model TEXT,contended INTEGER NOT NULL DEFAULT 0,why TEXT,ttft_ms REAL,prefill_tps REAL,decode_tps REAL,task_index REAL,task_seconds REAL,peak_vram_mib REAL,probe_vram_mib REAL,regressions TEXT NOT NULL DEFAULT '[]',detail TEXT);
       CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY,value TEXT);`);
     // A restart ends any run that was in progress.
     this.db.prepare("UPDATE eval_runs SET status='interrupted',finished_at=? WHERE status='running'").run(Date.now());
@@ -82,6 +83,12 @@ export class GrowthStore {
       .run(id,i.at||Date.now(),i.kind,i.title||'',i.rationale||'',JSON.stringify(i.change||{}),i.status,JSON.stringify(i.signal||{}),i.baseline?JSON.stringify(i.baseline):null,i.candidate?JSON.stringify(i.candidate):null,i.decidedAt||null,JSON.stringify(i.detail||{}));
     return this.improvement(id);
   }
+
+  // ── speed and memory over time ────────────────────────────────────────────
+  addSpeed(x){return Number(this.db.prepare('INSERT INTO speed(at,model,contended,why,ttft_ms,prefill_tps,decode_tps,task_index,task_seconds,peak_vram_mib,probe_vram_mib,regressions,detail) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').run(x.at||Date.now(),x.model||null,x.contended?1:0,x.why||null,x.ttftMs??null,x.prefillTps??null,x.decodeTps??null,x.taskIndex??null,x.taskSeconds??null,x.peakVramMiB??null,x.probeVramMiB??null,JSON.stringify(x.regressions||[]),JSON.stringify(x.detail||{})).lastInsertRowid);}
+  speedView(r){return {id:r.id,at:r.at,model:r.model,contended:!!r.contended,why:r.why,ttftMs:r.ttft_ms,prefillTps:r.prefill_tps,decodeTps:r.decode_tps,taskIndex:r.task_index,taskSeconds:r.task_seconds,peakVramMiB:r.peak_vram_mib,probeVramMiB:r.probe_vram_mib,regressions:json(r.regressions,[]),detail:json(r.detail,{})};}
+  /** Newest first; with a model, only that model's nights (numbers across models are not comparable). */
+  speedHistory({limit=30,model}={}){return (model?this.db.prepare('SELECT * FROM speed WHERE model=? ORDER BY at DESC,id DESC LIMIT ?').all(model,limit):this.db.prepare('SELECT * FROM speed ORDER BY at DESC,id DESC LIMIT ?').all(limit)).map(r=>this.speedView(r));}
 
   // ── night shift journal ───────────────────────────────────────────────────
   log(day,step,status,detail=null){this.db.prepare('INSERT INTO shift(at,day,step,status,detail) VALUES(?,?,?,?,?)').run(Date.now(),day,step,status,detail?JSON.stringify(detail):null);}

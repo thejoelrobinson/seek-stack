@@ -1,17 +1,21 @@
 // The night shift: after the nightly reflection, while nobody is using Seek, run the task tests,
 // learn skills from yesterday's work, try one or two tested improvements, and prepare drafts for
 // what is coming up. Any task of the user's interrupts it at once; it resumes later in the window.
+// Right after the tests, a controlled speed probe records how fast and how heavy Seek is tonight.
 // Daytime: scan for heads-up cards and send the morning digest.
-const STEPS=['tests','skills','improve','prepare'];
+import {describe} from './work-speed.js';
+const STEPS=['tests','speed','skills','improve','prepare'];
 const DAY=86400000;
-export const NIGHT_DEFAULTS={enabled:true,tests:true,skills:true,improve:true,prepare:true,until:'07:30',digest:'08:00'};
+export const NIGHT_DEFAULTS={enabled:true,tests:true,speed:true,skills:true,improve:true,prepare:true,until:'07:30',digest:'08:00'};
 
 export class NightShift {
-  constructor({engine,dreaming,growth,runner,improver,proactive,notify=()=>{},log=console,isResourceBusy=()=>false}){
-    Object.assign(this,{engine,dreaming,growth,runner,improver,proactive,notify,log,isResourceBusy});
+  constructor({engine,dreaming,growth,runner,improver,proactive,speed=null,notify=()=>{},log=console,isResourceBusy=()=>false}){
+    Object.assign(this,{engine,dreaming,growth,runner,improver,proactive,speed,notify,log,isResourceBusy});
     this.flight=null;this.controller=null;this.step=null;this.stopped=false;this.lastScan=0;
   }
   settings(){return {...NIGHT_DEFAULTS,...(this.growth.get('nightshift')||{})};}
+  /** Steps that are switched on and can run here (the speed probe needs a tracker). */
+  enabled(s=this.settings()){return STEPS.filter(k=>s[k]&&(k!=='speed'||this.speed));}
   configure(body){
     const next={...this.settings()};
     for(const k of ['enabled',...STEPS])if(typeof body[k]==='boolean')next[k]=body[k];
@@ -30,13 +34,18 @@ export class NightShift {
     if(now-this.lastScan>60000){this.lastScan=now;try{if(this.proactive.scan(now))void this.engine.save();}catch(e){this.log.warn?.('Heads up scan: '+e.message);}this.morningDigest(now);}
     if(this.flight){if(this.userBusy())this.controller?.abort(new Error('Paused for your work.'));return;}
     const s=this.settings();if(!s.enabled||!this.inWindow()||!this.reflectionDone()||!this.idle())return;
-    const state=this.state(),next=STEPS.find(step=>s[step]&&!['done','skipped'].includes(state.steps[step]?.status)&&!(state.steps[step]?.status==='failed'&&state.steps[step].tries>=2));
+    const state=this.state(),next=this.enabled(s).find(step=>!['done','skipped'].includes(state.steps[step]?.status)&&!(state.steps[step]?.status==='failed'&&state.steps[step].tries>=2));
     if(next)this.start(next);
   }
   morningDigest(now){
     const {day,time}=this.dreaming.calendar(now),s=this.settings();
     if(time<s.digest||time>'11:00'||this.growth.get('digest-day')===day||this.engine.store.settings.notifications===false)return;
-    this.growth.set('digest-day',day);const d=this.proactive.digest(now);if(d)this.notify(d);
+    this.growth.set('digest-day',day);
+    // A speed or memory regression from last night rides along with the morning summary.
+    const latest=this.growth.speedHistory?.({limit:1})[0],slow=latest&&now-latest.at<18*3600000&&latest.regressions.length&&this.growth.get('speed-announced')!==latest.id?latest:null;
+    let d=this.proactive.digest(now);
+    if(slow){this.growth.set('speed-announced',slow.id);const line='Slower last night: '+slow.regressions.map(describe).join('; ');d=d?{...d,body:`${d.body} · ${line}`.slice(0,300)}:{title:'Seek got slower overnight',body:line.slice(0,220),tag:'speed-'+day};}
+    if(d)this.notify(d);
   }
   start(step,{manual=false,caseIds=null,attempts=1}={}){
     if(this.flight)throw new Error('The night shift is already working.');
@@ -55,15 +64,29 @@ export class NightShift {
   }
   async run(step,signal){
     // The whole shift on demand: each enabled step in order, each recorded in the journal.
-    if(step==='all'){const s=this.settings(),out={};for(const k of STEPS.filter(k=>s[k])){signal.throwIfAborted();this.step=k;this.mark(k,'running');out[k]=await this.run(k,signal);this.mark(k,'done',out[k]);}return {steps:Object.keys(out)};}
+    if(step==='all'){const out={};for(const k of this.enabled()){signal.throwIfAborted();this.step=k;this.mark(k,'running');out[k]=await this.run(k,signal);this.mark(k,'done',out[k]);}return {steps:Object.keys(out)};}
     if(step==='tests'){
       // A spot check of a few tests never becomes the baseline improvements are judged against.
       if(this.spot){const run=await this.runner.run({reason:'spot',caseIds:this.spot.caseIds,attempts:this.spot.attempts,signal});return {passed:run.passed,total:run.total,spot:true};}
       const previous=this.growth.lastBaseline();
-      const run=await this.runner.run({reason:this.manual?'manual':'nightly',signal});
+      // Watch the GPU through the run: peak VRAM, and whether anything else was on it at the start.
+      const quiet=await this.speed?.idle(signal,{tries:1}).catch(()=>null),monitor=this.speed?.watch();
+      let run,gpu;try{run=await this.runner.run({reason:this.manual?'manual':'nightly',signal});}finally{gpu=await monitor?.stop();}
       if(run.status!=='complete')throw new Error(run.status==='interrupted'?'Paused for your work.':'The test run did not finish.');
+      if(this.speed){
+        const latest=new Map();for(const r of run.results||[])if(!latest.has(r.caseId)||r.attempt>latest.get(r.caseId).attempt)latest.set(r.caseId,r);
+        const caseSeconds=Object.fromEntries([...latest.values()].filter(r=>r.passed&&r.seconds>0).map(r=>[r.caseId,r.seconds]));
+        this.growth.set('speed-tests',{runId:run.runId,at:Date.now(),peakMiB:gpu?.peakMiB??null,caseSeconds,contended:!!quiet?.contended,why:quiet?.why||null});
+      }
       const reverted=this.improver.rollbackCheck(previous,this.growth.lastBaseline());
       return {passed:run.passed,total:run.total,reverted:reverted.length};
+    }
+    if(step==='speed'){
+      if(!this.speed)throw new Error('Speed tracking is not available here.');
+      // Task time and test VRAM count only when they come from tonight's own test run.
+      const t=this.growth.get('speed-tests'),fresh=t&&t.runId===this.growth.lastBaseline()?.id&&Date.now()-t.at<18*3600000;
+      const x=await this.speed.measure({signal,tests:fresh?t:null});
+      return {model:x.model,ttftMs:x.ttftMs,decodeTps:x.decodeTps,prefillTps:x.prefillTps,probeVramMiB:x.probeVramMiB,peakVramMiB:x.peakVramMiB,taskIndex:x.taskIndex,contended:x.contended,why:x.why,regressions:x.regressions.map(describe)};
     }
     if(step==='skills'){
       const baseline=this.growth.lastBaseline(),made=[];
@@ -96,6 +119,7 @@ export class NightShift {
       baseline:baseline?{id:baseline.id,startedAt:baseline.startedAt,passed:baseline.passed,total:baseline.total,results:baseline.results}:null,
       history:runs.filter(r=>r.reason==='nightly'||r.reason==='manual'||r.reason==='baseline').filter(r=>!r.overlay&&r.status==='complete').slice(0,14).map(r=>{const res=this.growth.results(r.id);return {id:r.id,at:r.startedAt,passed:r.passed,total:r.total,steps:res.reduce((n,x)=>n+(x.steps||0),0),seconds:Math.round(res.reduce((n,x)=>n+(x.seconds||0),0))};}),
       trials:runs.filter(r=>r.overlay).slice(0,10),
+      speed:this.speed?this.growth.speedHistory({limit:30}):null,
       live:this.runner.current?{...this.runner.current,run:this.growth.run(this.runner.current.runId),results:this.growth.results(this.runner.current.runId)}:null};
   }
 }
