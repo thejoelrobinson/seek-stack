@@ -25,6 +25,7 @@ import {EvalRunner,EVAL_CASES} from './work-evals.js';
 import {Improver} from './work-improve.js';
 import {Proactive} from './work-proactive.js';
 import {NightShift} from './work-nightshift.js';
+import {SpeedTracker} from './work-speed.js';
 import {WorkResultStore} from './work-results.js';
 import {WorkModelQueue} from './work-model-queue.js';
 import {PurchaseStore,RETAILER_ADAPTERS} from './purchases.js';
@@ -842,7 +843,8 @@ export async function mountWork(ctx,controller,isTrusted) {
     })();
   }
   const proactive=new Proactive({engine,memory:()=>engine.dreaming,log:ctx.logger});
-  const nightShift=new NightShift({engine,dreaming,growth,runner,improver,proactive,log:ctx.logger,isResourceBusy:()=>!!engine.resourceBusy?.(),notify:d=>void push.notify(d)});
+  const speed=new SpeedTracker({growth,queue:modelQueue,log:ctx.logger});
+  const nightShift=new NightShift({engine,dreaming,growth,runner,improver,proactive,speed,log:ctx.logger,isResourceBusy:()=>!!engine.resourceBusy?.(),notify:d=>void push.notify(d)});
   const shiftTimer=setInterval(()=>nightShift.tick(),15000);
   // A finished task is reflected on right away, so its corrections show as "Noted" on the task.
   const finished=new Map(engine.store.tasks.map(t=>[t.id,t.status]));
