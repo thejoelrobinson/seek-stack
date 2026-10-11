@@ -1,11 +1,13 @@
 // What Seek learns about *doing work* (as opposed to memory, which is about the user): task-test
-// results, skills distilled from finished tasks, tested working notes, the improvement log and the
-// night-shift journal. Everything here is data — the self-improvement loop can change notes and
-// skills, never code — and every change carries the evidence that justified it.
+// results, skills distilled from finished tasks, tested working notes and prompt sections, the
+// improvement log and the night-shift journal. Everything here is data — the self-improvement loop can
+// change notes, skills and unprotected prompt sections, never code — and every change carries the
+// evidence that justified it.
 import {DatabaseSync} from 'node:sqlite';
 import {mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {renderPrompt,promptSection} from './work-prompts.js';
 
 const json=(v,fallback)=>{try{return v==null?fallback:JSON.parse(v);}catch{return fallback;}};
 const normalize=s=>String(s||'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
@@ -26,6 +28,7 @@ export class GrowthStore {
       CREATE TABLE IF NOT EXISTS eval_results(run_id TEXT NOT NULL,case_id TEXT NOT NULL,attempt INTEGER NOT NULL DEFAULT 1,passed INTEGER NOT NULL,status TEXT,seconds REAL,steps INTEGER,task_id TEXT,detail TEXT,at INTEGER,PRIMARY KEY(run_id,case_id,attempt));
       CREATE TABLE IF NOT EXISTS skills(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT,category TEXT,triggers TEXT NOT NULL DEFAULT '[]',body TEXT NOT NULL DEFAULT '{}',status TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,sources TEXT NOT NULL DEFAULT '[]',uses INTEGER NOT NULL DEFAULT 0,successes INTEGER NOT NULL DEFAULT 0,failures INTEGER NOT NULL DEFAULT 0,last_used_at INTEGER,tests TEXT NOT NULL DEFAULT '[]',history TEXT NOT NULL DEFAULT '[]',created_at INTEGER,updated_at INTEGER);
       CREATE TABLE IF NOT EXISTS notes(id TEXT PRIMARY KEY,text TEXT NOT NULL,status TEXT NOT NULL,origin TEXT,improvement_id TEXT,created_at INTEGER,updated_at INTEGER);
+      CREATE TABLE IF NOT EXISTS prompts(id TEXT PRIMARY KEY,section TEXT NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,improvement_id TEXT,created_at INTEGER,updated_at INTEGER);
       CREATE TABLE IF NOT EXISTS improvements(id TEXT PRIMARY KEY,at INTEGER,kind TEXT,title TEXT,rationale TEXT,change TEXT,status TEXT,signal TEXT,baseline TEXT,candidate TEXT,decided_at INTEGER,detail TEXT);
       CREATE TABLE IF NOT EXISTS shift(seq INTEGER PRIMARY KEY AUTOINCREMENT,at INTEGER,day TEXT,step TEXT,status TEXT,detail TEXT);
       CREATE TABLE IF NOT EXISTS speed(id INTEGER PRIMARY KEY AUTOINCREMENT,at INTEGER,model TEXT,contended INTEGER NOT NULL DEFAULT 0,why TEXT,ttft_ms REAL,prefill_tps REAL,decode_tps REAL,task_index REAL,task_seconds REAL,peak_vram_mib REAL,probe_vram_mib REAL,regressions TEXT NOT NULL DEFAULT '[]',detail TEXT);
@@ -72,6 +75,24 @@ export class GrowthStore {
   addNote({text,origin='improvement',improvementId=null,status='active'}){const id=randomUUID(),now=Date.now();this.db.prepare('INSERT INTO notes(id,text,status,origin,improvement_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(id,text,status,origin,improvementId,now,now);return id;}
   setNote(id,status){this.db.prepare('UPDATE notes SET status=?,updated_at=? WHERE id=?').run(status,Date.now(),id);}
 
+  // ── prompt sections ───────────────────────────────────────────────────────
+  // At most one active override per section; shipping a new one supersedes it, retiring the
+  // active one brings back the one it replaced (or the default text when there is none).
+  prompts({status='active'}={}){return this.db.prepare(status==='all'?'SELECT * FROM prompts ORDER BY created_at, rowid':'SELECT * FROM prompts WHERE status=? ORDER BY created_at, rowid').all(...(status==='all'?[]:[status])).map(r=>({id:r.id,section:r.section,text:r.text,status:r.status,improvementId:r.improvement_id,createdAt:r.created_at,updatedAt:r.updated_at}));}
+  addPrompt({section,text,improvementId=null}){
+    const id=randomUUID(),now=Date.now();
+    this.db.prepare("UPDATE prompts SET status='superseded',updated_at=? WHERE section=? AND status='active'").run(now,section);
+    this.db.prepare('INSERT INTO prompts(id,section,text,status,improvement_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').run(id,section,text,'active',improvementId,now,now);
+    return id;
+  }
+  retirePrompt(id){
+    const r=this.db.prepare('SELECT * FROM prompts WHERE id=?').get(id);if(!r||r.status==='retired')return;
+    const now=Date.now();this.db.prepare("UPDATE prompts SET status='retired',updated_at=? WHERE id=?").run(now,id);
+    if(r.status!=='active')return;
+    const prior=this.db.prepare("SELECT id FROM prompts WHERE section=? AND status='superseded' ORDER BY created_at DESC, rowid DESC LIMIT 1").get(r.section);
+    if(prior)this.db.prepare("UPDATE prompts SET status='active',updated_at=? WHERE id=?").run(now,prior.id);
+  }
+
   // ── improvements ──────────────────────────────────────────────────────────
   improvementView(r){return r?{id:r.id,at:r.at,kind:r.kind,title:r.title,rationale:r.rationale,change:json(r.change,{}),status:r.status,signal:json(r.signal,{}),baseline:json(r.baseline,null),candidate:json(r.candidate,null),decidedAt:r.decided_at,detail:json(r.detail,{})}:null;}
   improvements(limit=40){return this.db.prepare('SELECT * FROM improvements ORDER BY at DESC LIMIT ?').all(limit).map(r=>this.improvementView(r));}
@@ -96,13 +117,21 @@ export class GrowthStore {
 }
 
 /**
- * The tested working policy: notes (in the system prompt of every Work session) and skills
- * (added to the instructions of tasks they match). An overlay swaps in a candidate policy for one
- * eval task, which is how changes are tested without anyone else seeing them.
+ * The tested working policy: notes (in the system prompt of every Work session), skills (added to
+ * the instructions of tasks they match) and rewritten prompt sections (in every task's standing
+ * instructions). An overlay swaps in a candidate policy for one eval task, which is how changes are
+ * tested without anyone else seeing them.
  */
 export class Policy {
   constructor(store){this.store=store;}
   notes(overlay=null){return overlay?.notes?overlay.notes.slice(0,MAX_NOTES):this.store.notes().map(n=>n.text);}
+  /** Live prompt overrides, with a candidate overlay's sections on top. */
+  prompts(overlay=null){
+    const live={};for(const p of this.store.prompts())live[p.section]=p.text;
+    return {...live,...(overlay?.prompts||{})};
+  }
+  promptSection(name,overlay=null){return this.prompts(overlay)[name]||promptSection(name)?.text||'';}
+  promptText(mode,overlay=null){return renderPrompt(mode,this.prompts(overlay));}
   notesText(overlay=null){
     const notes=this.notes(overlay);if(!notes.length)return '';
     return 'Working notes from tested experience (each one improved real results; current requests and verified data come first):\n'+notes.map(n=>'- '+n).join('\n');
