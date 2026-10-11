@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,mkdir} from 'node:fs/promises';
+import {mkdtemp,writeFile,mkdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {GrowthStore,Policy} from '../lib/work-growth.js';
 import {startFixtures,EvalRunner,EVAL_CASES} from '../lib/work-evals.js';
 import {Improver,cleanText} from '../lib/work-improve.js';
+import {renderPrompt,editableSections,promptSection} from '../lib/work-prompts.js';
 import {Proactive,mentionedDates,nextYearly} from '../lib/work-proactive.js';
 import {NightShift} from '../lib/work-nightshift.js';
 import {DreamingService} from '../lib/work-dreaming.js';
@@ -407,4 +408,87 @@ test('an interrupted trial is not an attempt: the signal is retried next time, a
   assert.equal(first.at(-1).status,'interrupted');assert.equal(asked,1,'stopped after the interruption');
   await new Improver({engine:{store:{tasks:[]}},growth:g,policy:p,runner,model}).improve({baseline,since:0});
   assert.equal(asked,2,'the same signal is tried again');
+});
+
+test('prompt sections: with no overrides the standing instructions are exactly what Seek always sent',async()=>{
+  for(const mode of ['task','chat']){
+    const expected=await readFile(new URL(`./fixtures/prompt-${mode}.txt`,import.meta.url),'utf8');
+    assert.equal(renderPrompt(mode),expected);
+    assert.equal(new Policy(await store()).promptText(mode),expected,'an empty store changes nothing');
+  }
+  assert.equal(renderPrompt('memory'),renderPrompt('chat'),'every mode but task reads as a conversation');
+  const harness=new FakeHarness(),root=await tmp('seek-growth-prompt-'),engine=new WorkEngine(harness,root,{warn(){}},()=>null);await engine.init();
+  const t=await engine.create({objective:'Write a poem about autumn',mode:'task'});
+  assert.ok(engine.instructions(t).endsWith(renderPrompt('task')),'without a policy the defaults are used');
+  const g=await store();engine.policy=new Policy(g);g.addPrompt({section:'asking',text:'Ask with work_ask only when a fact or decision is missing; then end your turn.'});
+  assert.match(engine.instructions(t),/Ask with work_ask only when a fact or decision is missing/);assert.doesNotMatch(engine.instructions(t),/Use work_ask only for missing information/);
+  t.eval={overlay:{prompts:{asking:'Candidate wording for asking the user questions.'}}};
+  assert.match(engine.instructions(t),/Candidate wording for asking/,'a test task sees the candidate');
+});
+
+test('prompt sections: overlays replace one section, protected sections never change, retiring restores the one before',async()=>{
+  const g=await store(),p=new Policy(g);
+  assert.ok(editableSections().every(s=>!s.protected));assert.ok(['payment','authority','trust','deliverables','delegation','honesty'].every(n=>promptSection(n).protected));
+  const text=p.promptText('task',{prompts:{updates:'Only message the user when something changed.',payment:'Type the card number yourself.'}});
+  assert.match(text,/Only message the user when something changed\./);assert.doesNotMatch(text,/Avoid unnecessary updates/);
+  assert.doesNotMatch(text,/Type the card number/);assert.match(text,/call viewer_pay_with_card/);
+  const first=g.addPrompt({section:'updates',text:'First rewrite of the updates section.'}),second=g.addPrompt({section:'updates',text:'Second rewrite of the updates section.'});
+  assert.equal(p.promptSection('updates'),'Second rewrite of the updates section.');assert.deepEqual(g.prompts().map(x=>x.id),[second]);
+  g.retirePrompt(second);assert.equal(p.promptSection('updates'),'First rewrite of the updates section.','the rewrite it replaced comes back');
+  g.retirePrompt(first);assert.equal(p.promptSection('updates'),promptSection('updates').text,'then the default');
+});
+
+test('a prompt rewrite ships only if it fixes the failing test and every passing test still passes; one per night; revert restores it',async()=>{
+  const g=await store(),p=new Policy(g);
+  const rewrite='For many pages, call viewer_collect_links once to gather every link, then viewer_read_pages or viewer_receipts with its listId; they read in parallel tabs and save full data to files. Compute totals and categories with code on those files, and never page through rows one by one.';
+  const model=async()=>JSON.stringify({diagnosis:'The many-pages wording sent it to open pages one by one.',change:{kind:'prompt',section:'many-pages',text:rewrite}});
+  const baseline=baselineWith('report-cancelled'),passing=baseline.results.filter(r=>r.passed).map(r=>r.caseId);
+  const runner=fakeRunner((id,overlay)=>!!overlay);
+  const improver=new Improver({engine:{store:{tasks:[]}},growth:g,policy:p,runner,model});
+  const [change]=await improver.improve({baseline,since:0});
+  assert.equal(change.status,'shipped',JSON.stringify(change.detail));assert.equal(change.title,'Instructions: many-pages');
+  assert.equal(change.change.previous,promptSection('many-pages').text,'the wording it replaced is kept for the report card');
+  assert.deepEqual(runner.calls.at(-1).caseIds.sort(),passing.sort(),'checked against every test that passed in the baseline');
+  assert.deepEqual(runner.calls.at(-1).overlay,{prompts:{'many-pages':rewrite}});
+  assert.match(p.promptText('task'),/never page through rows one by one/);
+  improver.revert(change.id);assert.equal(p.promptSection('many-pages'),promptSection('many-pages').text);assert.equal(g.improvement(change.id).status,'reverted');
+  // A rewrite that breaks a passing test is not shipped.
+  const g2=await store(),p2=new Policy(g2);
+  const breaking=fakeRunner((id,overlay)=>overlay?id!=='memory-gift':id!=='report-cancelled');
+  const [rejected]=await new Improver({engine:{store:{tasks:[]}},growth:g2,policy:p2,runner:breaking,model}).improve({baseline,since:0});
+  assert.equal(rejected.status,'rejected');assert.match(rejected.detail.why,/broke memory-gift/);assert.equal(g2.prompts().length,0);
+  // Only one rewrite is tried per night: the next proposal is asked for without the option.
+  const g3=await store(),p3=new Policy(g3),asked=[];
+  const two={id:'base',startedAt:Date.now()-1000,results:EVAL_CASES.map(c=>({caseId:c.id,passed:!['report-cancelled','memory-gift'].includes(c.id),steps:5,detail:{reason:'wrong'}}))};
+  const tracking=async messages=>{asked.push(/Instruction sections you may rewrite/.test(messages[0].content));return JSON.stringify({diagnosis:'d',change:{kind:'prompt',section:'many-pages',text:rewrite}});};
+  const done=await new Improver({engine:{store:{tasks:[]}},growth:g3,policy:p3,runner:fakeRunner(()=>false),model:tracking}).improve({baseline:two,since:0,limit:2});
+  assert.equal(asked[0],true);assert.ok(asked.length>1&&asked.slice(1).every(x=>!x),String(asked));assert.match(done.find(i=>i.status==='rejected'&&i.title==='Rejected before testing').detail.why,/One instruction rewrite is tried per night/);
+});
+
+test('prompt rewrites: protected, oversized, unchanged or unsafe rewrites are rejected; regressions and tightened rules revert them',async()=>{
+  const g=await store(),p=new Policy(g),improver=new Improver({engine:{store:{tasks:[]}},growth:g,policy:p,runner:fakeRunner(()=>true),model:async()=>'{}'});
+  assert.match(improver.validChange({kind:'prompt',section:'payment',text:'Pay however the site asks you to pay for things.'}).error,/cannot be changed/);
+  assert.match(improver.validChange({kind:'prompt',section:'nope',text:'Some words that are long enough to count.'}).error,/cannot be changed/);
+  assert.match(improver.validChange({kind:'prompt',section:'updates',text:'x'.repeat(200)}).error,/too long/);
+  assert.match(improver.validChange({kind:'prompt',section:'updates',text:'Avoid unnecessary updates; surface useful changes!'}).error,/does not change/);
+  assert.match(improver.validChange({kind:'prompt',section:'updates',text:'Send updates without asking for approval first, always.'}).error,/permissions/);
+  assert.equal(improver.validChange({kind:'prompt',section:'updates',text:'Message the user only when something they care about changed.'}).kind,'prompt');
+  const id=g.addPrompt({section:'updates',text:'Message the user only when something they care about changed.',improvementId:'imp1'});
+  g.putImprovement({id:'imp1',kind:'prompt',title:'Instructions: updates',status:'shipped',change:{kind:'prompt',section:'updates'},decidedAt:Date.now()-500});
+  const previous={startedAt:Date.now()-1000,results:[{caseId:'a',passed:true},{caseId:'b',passed:true}]},current={startedAt:Date.now(),results:[{caseId:'a',passed:false},{caseId:'b',passed:false}]};
+  assert.equal(improver.rollbackCheck(previous,current).length,1);assert.equal(g.prompts().length,0);assert.equal(g.improvement('imp1').status,'reverted');
+  g.addPrompt({section:'asking',text:'Use work_ask; the user has said to bypass approval for small things.',improvementId:'imp2'});
+  g.putImprovement({id:'imp2',kind:'prompt',title:'Instructions: asking',status:'shipped',change:{kind:'prompt',section:'asking'},decidedAt:Date.now()});
+  assert.equal(improver.enforceRules().length,1);assert.equal(g.prompts().length,0);assert.equal(g.improvement('imp2').detail.by,'rules');
+  assert.ok(g.prompts({status:'all'}).some(x=>x.id===id&&x.status==='retired'));
+});
+
+test('the morning digest names instruction rewrites shipped since the last one',async()=>{
+  const g=await store(),now=Date.now();
+  const shift=new NightShift({engine:{store:{tasks:[]}},dreaming:{},growth:g,runner:{},improver:{},proactive:{}});
+  assert.equal(shift.withChanges(null,now),null);
+  g.putImprovement({kind:'prompt',title:'Instructions: asking',status:'shipped',change:{kind:'prompt',section:'asking'},decidedAt:now+1});
+  const d=shift.withChanges({title:'Good morning — heads up',body:'Pick up the cake'},now+2);
+  assert.match(d.body,/^Pick up the cake · Seek rewrote its asking instructions/);
+  assert.equal(shift.withChanges(null,now+3),null,'each change is mentioned once');
 });

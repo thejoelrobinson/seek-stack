@@ -36,7 +36,15 @@ export class NightShift {
   morningDigest(now){
     const {day,time}=this.dreaming.calendar(now),s=this.settings();
     if(time<s.digest||time>'11:00'||this.growth.get('digest-day')===day||this.engine.store.settings.notifications===false)return;
-    this.growth.set('digest-day',day);const d=this.proactive.digest(now);if(d)this.notify(d);
+    this.growth.set('digest-day',day);const d=this.withChanges(this.proactive.digest(now),now);if(d)this.notify(d);
+  }
+  /** Instruction rewrites shipped since the last digest are named in it, so they never change quietly. */
+  withChanges(d,now){
+    const since=this.growth.get('digest-changes-at')||0;this.growth.set('digest-changes-at',now);
+    const sections=this.growth.improvements(20).filter(i=>i.status==='shipped'&&i.change?.kind==='prompt'&&i.decidedAt>since).map(i=>i.change.section);
+    if(!sections.length)return d;
+    const line=`Seek rewrote its ${[...new Set(sections)].join(', ')} instructions after testing; see or revert in the report card.`;
+    return d?{...d,body:`${d.body} · ${line}`}:{title:'Good morning — Seek changed how it works',body:line,tag:'digest-'+new Date(now).toISOString().slice(0,10)};
   }
   start(step,{manual=false,caseIds=null,attempts=1}={}){
     if(this.flight)throw new Error('The night shift is already working.');
